@@ -1,0 +1,506 @@
+﻿@page "/sapquery"
+@rendermode InteractiveServer
+@using AsyncSqlTool.Services
+@using Microsoft.Extensions.Logging
+@using DevExpress.Blazor
+@inject SapDynamicQueryService SapService
+@inject ILogger<SapQueryPage> Logger
+<style>
+    /* Özel CSS stilleri */
+    .grid-striped :deep(.dxgv) {
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .filter-cell :deep(input) {
+        padding: 6px 8px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        width: 100%;
+        font-size: 0.9rem;
+    }
+
+    :deep(.dxbs-grid) {
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    :deep(.dxbs-grid-header) {
+        background-color: #f8f9fa;
+    }
+
+    :deep(.search-panel) {
+        margin-bottom: 15px;
+    }
+
+    /* Butonlara hover efekti */
+    .dxbs-button:hover {
+        transform: translateY(-1px);
+        transition: all 0.2s;
+    }
+
+    /* Yükleme göstergesi animasyonu */
+    :deep(.dxbs-loadpanel) {
+        backdrop-filter: blur(3px);
+    }
+</style>
+<DxCard CssClass="mb-4">
+    <HeaderTemplate>
+        <h5>SAP B1 Sorgusu</h5>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <DxMemo @bind-Text="@SapQuery"
+                SizeMode="SizeMode.Large"
+                Height="150px"
+                Placeholder="SELECT * FROM OCRD -- İş Ortakları" />
+
+        <div class="mt-3">
+            <h6>Örnek Sorgular</h6>
+            <div class="d-flex flex-wrap gap-2">
+                <DxButton Text="İş Ortakları"
+                          Click="@(() => LoadExampleQuery("partners"))"
+                          RenderStyle="ButtonRenderStyle.Light"
+                          CssClass="mb-2" />
+
+                <DxButton Text="Ürünler"
+                          Click="@(() => LoadExampleQuery("items"))"
+                          RenderStyle="ButtonRenderStyle.Light"
+                          CssClass="mb-2" />
+
+                <DxButton Text="Siparişler"
+                          Click="@(() => LoadExampleQuery("orders"))"
+                          RenderStyle="ButtonRenderStyle.Light"
+                          CssClass="mb-2" />
+
+                <DxButton Text="Faturalar"
+                          Click="@(() => LoadExampleQuery("invoices"))"
+                          RenderStyle="ButtonRenderStyle.Light"
+                          CssClass="mb-2" />
+            </div>
+        </div>
+    </BodyTemplate>
+</DxCard>
+
+<DxCard CssClass="mb-4">
+    <HeaderTemplate>
+        <h5>SQL Server Ayarları</h5>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <DxTextBox @bind-Text="@SqlTableName"
+                           Label="Hedef Tablo Adı"
+                           LabelPosition="LabelPosition.Top"
+                           Placeholder="SQL Server tablo adı" />
+            </div>
+            <div class="col-md-6 mb-3">
+                <DxTextBox @bind-Text="@KeyColumn"
+                           Label="Anahtar Kolon (Opsiyonel)"
+                           LabelPosition="LabelPosition.Top"
+                           Placeholder="Örn: CardCode, ItemCode" />
+                <div class="form-text">Boş bırakılırsa tüm kayıtlar her çalıştırmada yeniden yüklenir.</div>
+            </div>
+        </div>
+    </BodyTemplate>
+</DxCard>
+
+<div class="mb-4">
+    <DxButton Text="Sorguyu Çalıştır ve SQL Server'a Kaydet"
+              IconCssClass="fas fa-play"
+              RenderStyle="ButtonRenderStyle.Primary"
+              Click="@ShowTableNamePopup"
+              Enabled="@(!IsProcessing)" />
+
+    <DxButton Text="Sorgu Sonucunu Önizle"
+              IconCssClass="fas fa-eye"
+              RenderStyle="ButtonRenderStyle.Info"
+              Click="PreviewSapQuery"
+              Enabled="@(!IsProcessing)" />
+
+</div>
+
+@if (IsProcessing)
+{
+    <DxLoadPanel Visible="true"
+                 ShowIndicator="true"
+                 IndicatorText="İşlem devam ediyor..."
+                 ShowContent="false" />
+}
+
+@if (!string.IsNullOrEmpty(ResultMessage))
+{
+    <DxAlert ShowCloseButton="true"
+             CloseButtonClick="@(() => ResultMessage = null)">
+        @ResultMessage
+    </DxAlert>
+}
+
+@if (GridData != null && GridData.Count > 0)
+{
+    <DxCard CssClass="m-4">
+        <HeaderTemplate>
+            <div class="d-flex justify-content-between align-items-center">
+                <h5>Sorgu Sonucu (@GridData.Count kayıt)</h5>
+                
+                <DxButton Text="Excel'e Aktar" 
+                        IconCssClass="fas fa-file-excel" 
+                        RenderStyle="ButtonRenderStyle.Success" 
+                        Click="@ExportToExcel"
+                        Enabled="@(PreviewGrid != null && GridData.Count > 0)" />
+            </div>
+        </HeaderTemplate>
+        <BodyTemplate>
+            <DxGrid Data="@GridData"
+                   PageSize="10"
+                    PagerPosition="GridPagerPosition.Bottom"
+                    PagerVisibleNumericButtonCount="5"
+                    ShowFilterRow="true"
+                    ShowSearchPanel="true"
+                    SearchPanelPlaceholder="Aramak için yazın..."
+                    @ref="PreviewGrid"
+                    CssClass="table-hover grid-striped">
+                <Columns>
+                    @foreach (var key in ((IDictionary<string, object>)GridData[0]).Keys)
+                    {
+                        <DxGridDataColumn FieldName="@key" Caption="@key" />
+                    }
+                </Columns>
+            </DxGrid>
+        </BodyTemplate>
+    </DxCard>
+}
+
+@if (!string.IsNullOrEmpty(SavedTableName))
+{
+    <DxCard CssClass="mt-4">
+        <HeaderTemplate>
+            <h5>SQL Sorgu Araçları - @SavedTableName</h5>
+        </HeaderTemplate>
+        <BodyTemplate>
+            <DxButton Text="SQL Server Tablosunu Görüntüle"
+                      IconCssClass="fas fa-table"
+                      RenderStyle="ButtonRenderStyle.Secondary"
+                      Click="@ViewSqlTable" />
+
+            <DxButton Text="Verileri Yenile"
+                      IconCssClass="fas fa-sync"
+                      RenderStyle="ButtonRenderStyle.Secondary"
+                      Click="@ShowTableNamePopup" />
+        </BodyTemplate>
+    </DxCard>
+}
+
+<!-- Tablo İsmi İçin Popup Dialog -->
+<DxPopup HeaderText="Tablo Adı Belirleyin"
+         @bind-Visible="@IsTableNamePopupVisible"
+         ShowFooter="true"
+         Width="400px"
+         CloseOnEscapeKey="false"
+         CloseOnOutsideClick="false">
+    <HeaderTemplate>
+        <span class="fs-5">Tablo Adını Belirleyin</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="mb-3">
+            <label class="form-label">SQL Server'a kaydedilecek tablonun adını girin:</label>
+            <DxTextBox @bind-Text="@PopupTableName"
+                        NullText="Tablo adı girin..."
+                        CssClass="w-100" />
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+                      RenderStyle="ButtonRenderStyle.Secondary"
+                      Click="@CloseTableNamePopup"
+                      CssClass="me-2" />
+            <DxButton Text="Kaydet"
+                      RenderStyle="ButtonRenderStyle.Primary"
+                      Click="@ConfirmAndExecuteSapQuery"
+                      Enabled="@(!string.IsNullOrWhiteSpace(PopupTableName))" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+@code {
+    private string SapQuery { get; set; } = string.Empty;
+    private string SqlTableName { get; set; } = string.Empty;
+    private string KeyColumn { get; set; } = string.Empty;
+    private bool IsProcessing { get; set; } = false;
+    private string ResultMessage { get; set; } = string.Empty;
+    private bool IsSuccess { get; set; } = false;
+    private List<Dictionary<string, object>> PreviewData { get; set; } = null;
+    private List<dynamic> GridData { get; set; }
+    private string SavedTableName { get; set; } = null;
+    private DxGrid PreviewGrid;
+
+    // Popup için yeni değişkenler
+    private bool IsTableNamePopupVisible { get; set; } = false;
+    private string PopupTableName { get; set; } = string.Empty;
+
+    private void ShowTableNamePopup()
+    {
+        if (string.IsNullOrWhiteSpace(SapQuery))
+        {
+            ResultMessage = "Lütfen bir SAP sorgusu yazın.";
+            IsSuccess = false;
+            return;
+        }
+
+        // Form'daki tablo adını popup'a aktar (eğer varsa)
+        PopupTableName = SqlTableName;
+        IsTableNamePopupVisible = true;
+    }
+
+    private void CloseTableNamePopup()
+    {
+        IsTableNamePopupVisible = false;
+    }
+
+    private async Task ConfirmAndExecuteSapQuery()
+    {
+        if (string.IsNullOrWhiteSpace(PopupTableName))
+        {
+            return; // Popup'ta boş tablo adı ile ilerlenmemeli
+        }
+
+        // Popup'tan alınan tablo adını form'daki değişkene aktar
+        SqlTableName = PopupTableName;
+        
+        // Popup'ı kapat
+        IsTableNamePopupVisible = false;
+        
+        // Sorguyu çalıştır
+        await ExecuteSapQuery();
+    }
+
+    private void TestClick()
+    {
+        ResultMessage = "Test butonu çalıştı!";
+        StateHasChanged();
+    }
+
+    private async Task ExecuteSapQuery()
+    {
+        if (string.IsNullOrWhiteSpace(SapQuery))
+        {
+            ResultMessage = "Lütfen bir SAP sorgusu yazın.";
+            IsSuccess = false;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SqlTableName))
+        {
+            ResultMessage = "Lütfen bir hedef tablo adı belirtin.";
+            IsSuccess = false;
+            return;
+        }
+
+        IsProcessing = true;
+        ResultMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("SAP sorgusu çalıştırılıyor");
+            var result = await SapService.ExecuteQueryAndSaveToSqlAsync(SapQuery, SqlTableName, KeyColumn);
+
+            ResultMessage = result.Message;
+            IsSuccess = result.Success;
+
+            if (result.Success)
+            {
+                SavedTableName = result.TableName;
+                // If successful, also load the preview data
+                if (result.RecordsRetrieved > 0)
+                {
+                    try
+                    {
+                        PreviewData = await SapService.QuerySqlServerAsync($"SELECT * FROM [{SavedTableName}]");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "Saved data preview could not be loaded");
+                        // Don't change the success status for this secondary operation
+                    }
+                }
+                else
+                {
+                    PreviewData = null;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "SAP sorgusu çalıştırılırken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+            PreviewData = null;
+        }
+        finally
+        {
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PreviewSapQuery()
+    {
+        if (string.IsNullOrWhiteSpace(SapQuery))
+        {
+            ResultMessage = "Lütfen bir SAP sorgusu yazın.";
+            IsSuccess = false;
+            return;
+        }
+
+        IsProcessing = true;
+        ResultMessage = string.Empty;
+        PreviewData = null;
+        StateHasChanged();
+
+        try
+        {
+            var rawData = await SapService.QuerySapAsync(SapQuery);
+
+            // Dinamik veriyi Grid için ExpandoObject listesine dönüştür
+            var gridData = new List<dynamic>();
+
+            foreach (var row in rawData)
+            {
+                dynamic expandoObj = new System.Dynamic.ExpandoObject();
+                var expandoDict = (IDictionary<string, object>)expandoObj;
+
+                foreach (var kvp in row)
+                {
+                    expandoDict[kvp.Key] = kvp.Value;
+                }
+
+                gridData.Add(expandoObj);
+            }
+
+            // Orijinal veriyi yine DxGrid dışındaki işlemler için sakla
+            PreviewData = rawData;
+
+            // DxGrid için dinamik veriyi bir sınıfa dönüştür
+            GridData = gridData;
+
+            if (GridData.Count > 0)
+            {
+                ResultMessage = $"{GridData.Count} kayıt bulundu.";
+                IsSuccess = true;
+            }
+            else
+            {
+                ResultMessage = "Sorgu sonucunda kayıt bulunamadı.";
+                IsSuccess = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "SAP sorgusu önizleme için çalıştırılırken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+        finally
+        {
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ViewSqlTable()
+    {
+        if (string.IsNullOrWhiteSpace(SavedTableName))
+        {
+            ResultMessage = "Görüntülenecek bir tablo bulunamadı.";
+            IsSuccess = false;
+            return;
+        }
+
+        IsProcessing = true;
+        ResultMessage = string.Empty;
+        PreviewData = null;
+        StateHasChanged();
+
+        try
+        {
+            // SQL Server'daki tabloyu sorgula
+            PreviewData = await SapService.QuerySqlServerAsync($"SELECT * FROM [{SavedTableName}]");
+
+            if (PreviewData != null && PreviewData.Count > 0)
+            {
+                ResultMessage = $"SQL Tablosu: {PreviewData.Count} kayıt görüntüleniyor.";
+                IsSuccess = true;
+                
+                // DxGrid için verileri dönüştür
+                var gridData = new List<dynamic>();
+                foreach (var row in PreviewData)
+                {
+                    dynamic expandoObj = new System.Dynamic.ExpandoObject();
+                    var expandoDict = (IDictionary<string, object>)expandoObj;
+
+                    foreach (var kvp in row)
+                    {
+                        expandoDict[kvp.Key] = kvp.Value;
+                    }
+
+                    gridData.Add(expandoObj);
+                }
+                GridData = gridData;
+            }
+            else
+            {
+                PreviewData = new List<Dictionary<string, object>>(); // Initialize as empty list instead of null
+                ResultMessage = "SQL tablosunda kayıt bulunamadı.";
+                IsSuccess = true;
+                GridData = new List<dynamic>();
+            }
+        }
+        catch (Exception ex)
+        {
+            ResultMessage = $"SQL tablosu görüntüleme hatası: {ex.Message}";
+            IsSuccess = false;
+            PreviewData = null;
+            GridData = null;
+        }
+        finally
+        {
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (PreviewGrid == null || GridData == null || GridData.Count == 0)
+        {
+            ResultMessage = "Dışa aktarılacak veri bulunamadı.";
+            IsSuccess = false;
+            return;
+        }
+
+        try
+        {
+            // DevExpress Grid Excel export
+            await PreviewGrid.ExportToXlsxAsync($"SapQuery_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            ResultMessage = "Veriler Excel'e başarıyla aktarıldı.";
+            IsSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            ResultMessage = $"Excel'e aktarma hatası: {ex.Message}";
+            IsSuccess = false;
+        }
+    }
+
+    private void LoadExampleQuery(string queryType)
+    {
+        SapQuery = queryType switch
+        {
+            "partners" => @"SELECT TOP 5 ""CardCode"", ""CardName"", ""CardType"", ""GroupCode"" FROM OCRD",
+            "items" => @"SELECT TOP 5 ""ItemCode"", ""ItemName"", ""OnHand"", ""AvgPrice"", ""ItmsGrpCod"" FROM OITM",
+            "orders" => @"SELECT TOP 5 o.""DocEntry"", o.""DocNum"", o.""CardCode"", o.""DocDate"", o.""DocTotal"" FROM ORDR o",
+            "invoices" => @"SELECT TOP 5 i.""DocEntry"", i.""DocNum"", i.""CardCode"", i.""DocDate"", i.""DocTotal"" FROM OINV i",
+            _ => SapQuery
+        };
+    }
+}
