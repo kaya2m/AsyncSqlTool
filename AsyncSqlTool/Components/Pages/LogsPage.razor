@@ -1,0 +1,333 @@
+﻿@page "/logs"
+@rendermode InteractiveServer
+@using AsyncSqlTool.Data
+@using AsyncSqlTool.Models
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext DbContext
+@inject ILogger<LogsPage> Logger
+
+<style>
+    .log-success {
+        color: #198754;
+    }
+    
+    .log-error {
+        color: #dc3545;
+    }
+    
+    .log-details {
+        font-family: monospace;
+        white-space: pre-wrap;
+        font-size: 0.8rem;
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 5px;
+        max-height: 300px;
+        overflow: auto;
+    }
+    
+    /* Grid stilleri */
+    .logs-grid :deep(.dxgv) {
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    /* Kart stilleri */
+    .log-card {
+        transition: all 0.2s ease;
+    }
+    
+    .log-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+</style>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>İşlem Logları</h2>
+        <div>
+            <DxButton Text="Yenile" 
+                     IconCssClass="fas fa-sync" 
+                     RenderStyle="ButtonRenderStyle.Light"
+                     Click="@LoadLogs" 
+                     Enabled="@(!IsLoading)" />
+                     
+            <DxButton Text="Logları Temizle" 
+                     IconCssClass="fas fa-trash" 
+                     RenderStyle="ButtonRenderStyle.Danger"
+                     Click="@ConfirmClearLogs" 
+                     Enabled="@(!IsLoading && Logs.Any())" />
+        </div>
+    </div>
+    
+    @if (IsLoading)
+    {
+        <div class="text-center my-5">
+            <DxSpinner Size="SpinnerSize.Large" />
+        </div>
+    }
+    else if (!Logs.Any())
+    {
+        <DxCallout Type="CalloutType.Info" IconCssClass="fas fa-info-circle">
+            <HeaderTemplate>
+                <h5>Henüz Log Kaydı Bulunmuyor</h5>
+            </HeaderTemplate>
+            <ContentTemplate>
+                <p>Sorgu çalıştırıldığında burada işlem logları görüntülenecektir.</p>
+            </ContentTemplate>
+        </DxCallout>
+    }
+    else
+    {
+        <DxGrid Data="@Logs"
+               @ref="LogsGrid"
+               PageSize="20"
+               PagerPosition="GridPagerPosition.Bottom"
+               PagerVisibleNumericButtonCount="5"
+               ShowFilterRow="true"
+               ShowSearchPanel="true"
+               CssClass="logs-grid">
+            <Columns>
+                <DxGridDataColumn FieldName="Id" Caption="ID" Width="80px" />
+                <DxGridDataColumn FieldName="SavedQueryName" Caption="Sorgu Adı" />
+                <DxGridDataColumn FieldName="ExecutionTime" Caption="Çalıştırma Zamanı">
+                    
+                </DxGridDataColumn>
+                <DxGridDataColumn FieldName="IsSuccess" Caption="Durum" Width="120px">
+                </DxGridDataColumn>
+                <DxGridDataColumn FieldName="RecordsAffected" Caption="Kayıt Sayısı" Width="120px" />
+                <DxGridDataColumn FieldName="ExecutionDuration" Caption="Süre" Width="120px">
+                </DxGridDataColumn>
+                <DxGridDataColumn FieldName="Message" Caption="Mesaj" />
+                <DxGridDataColumn Caption="İşlemler" Width="100px">
+                   @*  <DisplayTemplate>
+                        <DxButton IconCssClass="fas fa-eye"
+                                 RenderStyle="ButtonRenderStyle.Light"
+                                 ToolTip="Detayları Görüntüle"
+                                 Click="@(() => ShowLogDetails((QueryExecutionLogViewModel)context.DataItem))" />
+                    </DisplayTemplate> *@
+                </DxGridDataColumn>
+            </Columns>
+        </DxGrid>
+    }
+</div>
+
+<!-- Log Detayları Popup -->
+<DxPopup HeaderText="Log Detayları"
+        @bind-Visible="@IsDetailsVisible"
+        Width="800px"
+        ShowFooter="true">
+    <HeaderTemplate>
+        <span class="fs-5">
+            @if (SelectedLog != null)
+            {
+                <span>Log Detayları - @(SelectedLog.SavedQueryName)</span>
+            }
+            else
+            {
+                <span>Log Detayları</span>
+            }
+        </span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        @if (SelectedLog != null)
+        {
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0">Genel Bilgiler</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>ID:</strong> @SelectedLog.Id</p>
+                            <p><strong>Sorgu Adı:</strong> @SelectedLog.SavedQueryName</p>
+                            <p>
+                                <strong>Durum:</strong>
+                                @if (SelectedLog.IsSuccess)
+                                {
+                                    <span class="log-success"><i class="fas fa-check me-1"></i> Başarılı</span>
+                                }
+                                else
+                                {
+                                    <span class="log-error"><i class="fas fa-times me-1"></i> Başarısız</span>
+                                }
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Çalıştırma Zamanı:</strong> @SelectedLog.ExecutionTime.ToString("dd.MM.yyyy HH:mm:ss")</p>
+                            <p><strong>Etkilenen Kayıt:</strong> @SelectedLog.RecordsAffected</p>
+                            <p><strong>Süre:</strong> @SelectedLog.ExecutionDuration.TotalSeconds.ToString("0.00") saniye</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0">Mesaj</h6>
+                </div>
+                <div class="card-body">
+                    <p>@SelectedLog.Message</p>
+                </div>
+            </div>
+            
+            @if (!string.IsNullOrEmpty(SelectedLog.ErrorDetails))
+            {
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">Hata Detayları</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-details">@SelectedLog.ErrorDetails</div>
+                    </div>
+                </div>
+            }
+            
+            @if (SelectedLog.QueryText != null)
+            {
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">SQL Sorgusu</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-details">@SelectedLog.QueryText</div>
+                    </div>
+                </div>
+            }
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="Kapat"
+                     RenderStyle="ButtonRenderStyle.Secondary"
+                     Click="@(() => IsDetailsVisible = false)" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Logları Temizleme Onay Popup -->
+<DxPopup HeaderText="Logları Temizle"
+        @bind-Visible="@IsClearLogsConfirmVisible"
+        Width="400px"
+        ShowFooter="true">
+    <HeaderTemplate>
+        <span class="fs-5">Logları Temizle</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <p>Tüm log kayıtlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz!</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+                     RenderStyle="ButtonRenderStyle.Secondary"
+                     Click="@(() => IsClearLogsConfirmVisible = false)"
+                     CssClass="me-2" />
+            <DxButton Text="Temizle"
+                     RenderStyle="ButtonRenderStyle.Danger"
+                     Click="@ClearLogs" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+@code {
+    private List<QueryExecutionLogViewModel> Logs { get; set; } = new List<QueryExecutionLogViewModel>();
+    private bool IsLoading { get; set; } = true;
+    private DxGrid LogsGrid { get; set; }
+    
+    // Log detayları
+    private bool IsDetailsVisible { get; set; } = false;
+    private QueryExecutionLogViewModel SelectedLog { get; set; } = null;
+    
+    // Temizleme onayı
+    private bool IsClearLogsConfirmVisible { get; set; } = false;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogs();
+    }
+    
+    private async Task LoadLogs()
+    {
+        try
+        {
+            IsLoading = true;
+            StateHasChanged();
+            
+            Logs = await DbContext.QueryExecutionLogs
+                .Include(l => l.SavedQuery)
+                .OrderByDescending(l => l.ExecutionTime)
+                .Select(l => new QueryExecutionLogViewModel
+                {
+                    Id = l.Id,
+                    SavedQueryId = l.SavedQueryId,
+                    SavedQueryName = l.SavedQuery != null ? l.SavedQuery.Name : "Bilinmeyen Sorgu",
+                    ExecutionTime = l.ExecutionTime,
+                    IsSuccess = l.IsSuccess,
+                    RecordsAffected = l.RecordsAffected,
+                    Message = l.Message,
+                    ErrorDetails = l.ErrorDetails,
+                    ExecutionDuration = l.ExecutionDuration,
+                    QueryText = l.SavedQuery != null ? l.SavedQuery.QueryText : null
+                })
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Loglar yüklenirken hata oluştu");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    private void ShowLogDetails(QueryExecutionLogViewModel log)
+    {
+        SelectedLog = log;
+        IsDetailsVisible = true;
+    }
+    
+    private void ConfirmClearLogs()
+    {
+        IsClearLogsConfirmVisible = true;
+    }
+    
+    private async Task ClearLogs()
+    {
+        try
+        {
+            IsLoading = true;
+            StateHasChanged();
+            
+            // Tüm logları temizle
+            DbContext.QueryExecutionLogs.RemoveRange(DbContext.QueryExecutionLogs);
+            await DbContext.SaveChangesAsync();
+            
+            Logs.Clear();
+            IsClearLogsConfirmVisible = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Loglar temizlenirken hata oluştu");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    public class QueryExecutionLogViewModel
+    {
+        public int Id { get; set; }
+        public int SavedQueryId { get; set; }
+        public string SavedQueryName { get; set; } = string.Empty;
+        public DateTime ExecutionTime { get; set; }
+        public bool IsSuccess { get; set; }
+        public int RecordsAffected { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string ErrorDetails { get; set; } = string.Empty;
+        public TimeSpan ExecutionDuration { get; set; }
+        public string QueryText { get; set; } = string.Empty;
+    }
+}

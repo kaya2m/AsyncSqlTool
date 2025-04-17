@@ -1,0 +1,1546 @@
+﻿@page "/query"
+@rendermode InteractiveServer
+@using AsyncSqlTool.Models
+@using AsyncSqlTool.Services
+@using Microsoft.Extensions.Logging
+@using DevExpress.Blazor
+@using DevExpress.Blazor.Grid
+@inject QueryService QueryService
+@inject ILogger<QueryPage> Logger
+
+<style>
+    /* Modern ve estetik stil tanımlamaları */
+    .main-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .card {
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        background-color: #fff;
+        border: none;
+    }
+
+    .card-header {
+        background-color: #f8fafc;
+        border-bottom: 1px solid #edf2f7;
+        padding: 15px 20px;
+        font-weight: 600;
+        border-radius: 8px 8px 0 0;
+    }
+
+    .card-body {
+        padding: 20px;
+    }
+
+    .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .toolbar-section {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .action-panel {
+        margin-top: 15px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .section-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 15px;
+        color: #2d3748;
+        border-bottom: 1px solid #edf2f7;
+        padding-bottom: 8px;
+    }
+
+    .query-editor {
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 14px;
+        border-radius: 6px;
+        margin-top: 10px;
+    }
+
+    .badge {
+        font-size: 0.8rem;
+        padding: 5px 10px;
+        border-radius: 50px;
+        background-color: #e2e8f0;
+        color: #4a5568;
+        margin-left: 8px;
+    }
+
+    .badge-success {
+        background-color: #c6f6d5;
+        color: #276749;
+    }
+
+    .badge-primary {
+        background-color: #bee3f8;
+        color: #2b6cb0;
+    }
+
+    /* DevExpress özelleştirmeleri */
+    :deep(.dxbs-grid) {
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #edf2f7;
+    }
+
+    :deep(.dxbs-grid-header) {
+        background-color: #f8fafc;
+        border-bottom: 1px solid #edf2f7;
+    }
+
+    :deep(.dxgv) {
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    :deep(.dxbs-button) {
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    :deep(.dxbs-button):hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    :deep(.dxbs-textbox), :deep(.dxbs-combobox), :deep(.dxbs-memo) {
+        border-radius: 6px;
+    }
+
+    :deep(.dxbs-textbox) input, :deep(.dxbs-combobox) input {
+        padding: 8px 12px;
+        height: 40px;
+    }
+
+    :deep(.dxbs-loadpanel) {
+        backdrop-filter: blur(4px);
+    }
+
+    .table-operations {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+        align-items: center;
+    }
+
+    .alert {
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .alert-success {
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+        color: #155724;
+    }
+    
+    .alert-danger {
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+        color: #721c24;
+    }
+
+    .column-mapping-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .column-mapping-table th {
+        background-color: #f8fafc;
+        padding: 10px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #edf2f7;
+    }
+
+    .column-mapping-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #edf2f7;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 50px;
+        font-size: 0.8rem;
+        margin-left: 10px;
+    }
+
+    .status-badge.info {
+        background-color: #e6f7ff;
+        color: #096dd9;
+    }
+
+    .status-badge.success {
+        background-color: #d9f7be;
+        color: #389e0d;
+    }
+
+    .tab-container {
+        margin-top: 20px;
+    }
+
+    .tab-headers {
+        display: flex;
+        border-bottom: 1px solid #edf2f7;
+        margin-bottom: 15px;
+    }
+
+    .tab-header {
+        padding: 10px 20px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    .tab-header.active {
+        border-bottom: 2px solid #3182ce;
+        color: #3182ce;
+    }
+
+    .tab-content {
+        padding: 5px 0;
+    }
+</style>
+
+<div class="py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Gelişmiş SQL Sorgu Aracı</h2>
+        @if (!string.IsNullOrEmpty(CurrentQueryName))
+        {
+            <div class="d-flex align-items-center">
+                <span class="status-badge info">
+                    <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName
+                </span>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="toolbar">
+                <div class="toolbar-section me-4">
+                    <label for="dbConnection" class="demo-text cw-480 mb-1">
+                        Bağlantı Adı :
+                    </label>
+                    <DxComboBox Data="@DatabaseConnections"
+                               @bind-Value="@SelectedDatabaseId"
+                               TextFieldName="Name"
+                               ValueFieldName="Id"
+                               CssClass="me-2"
+                               Width="250px"
+                                InputId="dbConnection"
+                               NullText="Veritabanı bağlantısı seçin..." />
+                </div>
+                
+                <div class="toolbar-section flex-grow-1">
+                    <DxButton Text="Kayıtlı Sorgular"
+                             IconCssClass="fa fa-folder-open"
+                             RenderStyle="ButtonRenderStyle.Primary"
+                             Click="@ShowSavedQueriesPopup"
+                             Enabled="@(!IsProcessing)" />
+                             
+                    <DxButton Text="Sorguyu Kaydet"
+                             IconCssClass="fa fa-save"
+                             RenderStyle="ButtonRenderStyle.Success"
+                             Click="@ShowSaveQueryPopup"
+                             Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText))" />
+                             
+                    <DxButton Text="Kolon Eşleştirme"
+                             IconCssClass="fa fa-columns"
+                             RenderStyle="ButtonRenderStyle.Warning"
+                             Click="@ShowColumnMappingPopup"
+                             Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText))" />
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="section-title">Kaynak SQL Sorgusu</div>
+                    <DxMemo @bind-Text="@QueryText"
+                           CssClass="w-100 query-editor"
+                           SizeMode="SizeMode.Large"
+                           Height="180px"
+                           Placeholder="SELECT * FROM ..." />
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="section-title">Hedef Tablo Ayarları</div>
+                    
+                    <div class="mb-3">
+                        <label for="targetTable" class="demo-text cw-320 mb-1">
+                            Hedef Tablo Adı
+                        </label>
+                        <DxTextBox @bind-Text="@TargetTableName"
+                                   NullText="SQL Server tablo adı"
+                                   InputId="targetTable"
+                                  CssClass="w-100" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="targetColumns" class="demo-text cw-320 mb-1">
+                            Kolonlar
+                        </label>
+                        <DxTextBox @bind-Text="@SelectedColumns"
+                                   NullText="Örn: CardCode, ItemName, Price"
+                                    CssClass="w-100"
+                                   InputId="targetColumns" />
+                        <p class="form-text">
+                           <b>Seçilecek Kolonlar (virgülle ayırın, boş bırakırsanız tümü gelir)</b>
+                        </p>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="targetPK" class="demo-text cw-320 mb-1">
+                            Anahtar Kolon (Opsiyonel)
+                        </label>
+                        <DxTextBox @bind-Text="@KeyColumn"
+                                   NullText="Örn: CardCode, ItemCode"
+                                  CssClass="w-100"
+                                   InputId="targetPK" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="count" class="demo-text cw-320 mb-1">
+                            Maksimum Satır Sayısı (Opsiyonel)
+                        </label>
+                        <DxSpinEdit @bind-Value="@RowLimit"
+                                   MinValue="1"
+                                   MaxValue="10000"
+                                   CssClass="w-100"
+                                    InputId="count" />
+                    </div>
+                    
+                    <!-- Tablo İşlemleri -->
+                    @if(!string.IsNullOrEmpty(TargetTableName))
+                    {
+                        <div class="table-operations">
+                            <span class="me-2">Tablo İşlemleri:</span>
+                            <DxButton Text="Görüntüle"
+                                     IconCssClass="fa fa-table"
+                                     RenderStyle="ButtonRenderStyle.Light"
+                                     CssClass="btn-sm"
+                                     Click="@ViewTable"
+                                     Enabled="@(!IsProcessing)" />
+                                     
+                            <DxButton Text="Temizle"
+                                     IconCssClass="fa fa-eraser"
+                                     RenderStyle="ButtonRenderStyle.Warning"
+                                     CssClass="btn-sm"
+                                     Click="@(() => ConfirmTableOperation("truncate"))"
+                                     Enabled="@(!IsProcessing)" />
+                                     
+                            <DxButton Text="Sil"
+                                     IconCssClass="fa fa-trash"
+                                     RenderStyle="ButtonRenderStyle.Danger"
+                                     CssClass="btn-sm"
+                                     Click="@(() => ConfirmTableOperation("drop"))"
+                                     Enabled="@(!IsProcessing)" />
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            <div class="action-panel">
+                <DxButton Text="Sorgu Sonucunu Önizle"
+                         IconCssClass="fa fa-eye"
+                         RenderStyle="ButtonRenderStyle.Info"
+                         Click="@PreviewQuery"
+                         Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText))" />
+                         
+                <DxButton Text="Sorguyu Çalıştır ve SQL Server'a Kaydet"
+                         IconCssClass="fa fa-play"
+                         RenderStyle="ButtonRenderStyle.Primary"
+                         Click="@ExecuteQuery"
+                         Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText) && !string.IsNullOrEmpty(TargetTableName))" />
+            </div>
+        </div>
+    </div>
+
+    @if (IsProcessing)
+    {
+        <DxLoadPanel Visible="true"
+                    ShowIndicator="true"
+                    IndicatorText="İşlem devam ediyor..."
+                    ShowContent="false" />
+    }
+
+    @if (!string.IsNullOrEmpty(ResultMessage))
+    {
+        <div class="alert @(IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            <div>
+                <i class="fa @(IsSuccess ? "fa-check-circle" : "fa-exclamation-circle") me-2"></i>
+                @ResultMessage
+            </div>
+            <button type="button" class="btn-close" aria-label="Close" @onclick="@(() => ResultMessage = null)"></button>
+        </div>
+    }
+
+    <!-- Kolon Eşleştirme Özeti (Kart içinde) -->
+    @if (ColumnMappings.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Kolon Eşleştirmeleri (@ColumnMappings.Count kolon)</h5>
+                    <DxButton Text="Düzenle"
+                             IconCssClass="fa fa-pencil"
+                             RenderStyle="ButtonRenderStyle.Light"
+                             CssClass="btn-sm"
+                             Click="@ShowColumnMappingPopup" />
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="column-mapping-table">
+                        <thead>
+                            <tr>
+                                <th>Kaynak Kolon</th>
+                                <th>Hedef Kolon</th>
+                                <th>Veri Tipi</th>
+                                <th style="width:80px;">Anahtar</th>
+                                <th style="width:80px;">Boş?</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var mapping in ColumnMappings.Take(5))
+                            {
+                                <tr>
+                                    <td>@mapping.SourceColumnName</td>
+                                    <td>@mapping.TargetColumnName</td>
+                                    <td>@mapping.DataType@(mapping.Length > 0 ? $"({mapping.Length})" : "")</td>
+                                    <td class="text-center">
+                                        @if (mapping.IsPrimaryKey)
+                                        {
+                                            <i class="fa fa-key text-warning"></i>
+                                        }
+                                    </td>
+                                    <td class="text-center">
+                                        @if (mapping.AllowNull)
+                                        {
+                                            <i class="fa fa-check text-success"></i>
+                                        }
+                                        else
+                                        {
+                                            <i class="fa fa-times text-danger"></i>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (ColumnMappings.Count > 5)
+                {
+                    <div class="p-3 text-center">
+                        <span class="text-muted">ve @(ColumnMappings.Count - 5) kolon daha...</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Sorgu Sonuç Tabı -->
+    @if (GridData != null && GridData.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        Sorgu Sonucu 
+                        <span class="badge badge-success">@GridData.Count kayıt</span>
+                    </h5>
+                    
+                    <div>
+                        <DxButton Text="Excel'e Aktar" 
+                                IconCssClass="fa fa-file-excel-o" 
+                                RenderStyle="ButtonRenderStyle.Success" 
+                                Click="@ExportToExcel"
+                                Enabled="@(PreviewGrid != null && GridData.Count > 0)" />
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <DxGrid Data="@GridData"
+                       PageSize="10"
+                        PagerPosition="GridPagerPosition.Bottom"
+                        PagerVisibleNumericButtonCount="5"
+                        ShowFilterRow="true"
+                        ShowSearchBox="true"
+                        SearchBoxNullText="Aramak için yazın..."
+                        @ref="PreviewGrid"
+                        CssClass="table-hover grid-striped">
+                    <Columns>
+                        @if (GridData.Count > 0)
+                        {
+                            @foreach (var key in ((IDictionary<string, object>)GridData[0]).Keys)
+                            {
+                                <DxGridDataColumn FieldName="@key" Caption="@key" />
+                            }
+                        }
+                    </Columns>
+                </DxGrid>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Kayıtlı Sorguların Görüntülendiği Popup -->
+<DxPopup HeaderText="Kayıtlı Sorgular"
+        @bind-Visible="@IsSavedQueriesPopupVisible"
+        ShowFooter="true"
+        Width="1200px"
+>
+    <HeaderTemplate>
+        <h4 class="p-2  ">Kayıtlı Sorgular</h4>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="query-select-grid" style="height: 700px;">
+            <DxGrid Data="@SavedQueries"
+                   @ref="SavedQueriesGrid"
+                   ShowFilterRow="true"
+                   ShowSearchBox="true"
+                   KeyFieldName="Id"
+                   PageSize="10"
+                   SelectionMode="GridSelectionMode.Single"
+                    @bind-SelectedDataItem="@SelectedSavedQueryObj">
+                <Columns>
+                    <DxGridSelectionColumn Width="50px" />
+                    <DxGridDataColumn FieldName="Name" Caption="Sorgu Adı" Width="200px" />
+                    <DxGridDataColumn FieldName="DatabaseConnection.Name" Caption="Veritabanı" Width="150px" />
+                    <DxGridDataColumn FieldName="TargetTableName" Caption="Hedef Tablo" Width="150px" />
+                    <DxGridDataColumn FieldName="QueryText" Caption="SQL Sorgusu">
+                    </DxGridDataColumn>
+                </Columns>
+            </DxGrid>
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end p-2">
+            <DxButton Text="İptal"
+                 RenderStyle="ButtonRenderStyle.Dark"
+                 Click="@(() => IsSavedQueriesPopupVisible = false)"
+                 CssClass="me-2" />
+            <DxButton Text="Seçilen Sorguyu Yükle"
+                 RenderStyle="ButtonRenderStyle.Primary"
+                 Click="@LoadSelectedQuery"
+                 Enabled="@(SelectedSavedQueryObj != null)" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Sorgu Kaydetme Popupı -->
+<DxPopup HeaderText="Sorguyu Kaydet"
+        @bind-Visible="@IsSaveQueryPopupVisible"
+        ShowFooter="true"
+        Width="700px"
+        CloseOnEscapeKey="false"
+        CloseOnOutsideClick="false">
+    <HeaderTemplate>
+        <span class="fs-5">Sorguyu Kaydet</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="form-container mx-auto">
+            <div class="mb-3">
+                <DxTextBox @bind-Text="@SaveQueryName"
+                      Label="Sorgu Adı"
+                      CssClass="w-100"
+                      NullText="Sorgu adı girin..."
+                      LabelPosition="LabelPosition.Top" />
+            </div>
+            
+            <div class="mb-3">
+                <DxTextBox @bind-Text="@SaveTableName"
+                      Label="Hedef Tablo Adı"
+                      CssClass="w-100"
+                      NullText="SQL Server tablo adı..."
+                      LabelPosition="LabelPosition.Top" />
+            </div>
+            
+            <div class="mb-3">
+                <DxTextBox @bind-Text="@SaveKeyColumn"
+                      Label="Anahtar Kolon (Opsiyonel)"
+                      CssClass="w-100"
+                      NullText="Örn: CardCode, ItemCode..."
+                      LabelPosition="LabelPosition.Top" />
+            </div>
+            
+            <div class="mb-3">
+                <DxMemo @bind-Text="@SaveQueryDescription"
+                   Label="Açıklama"
+                   CssClass="w-100"
+                   Rows="2"
+                   NullText="Açıklama girin (opsiyonel)..."
+                   LabelPosition="LabelPosition.Top" />
+            </div>
+            
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="includeMappings" @bind="IncludeColumnMappings" />
+                <label class="form-check-label" for="includeMappings">Kolon eşleştirmelerini de kaydet</label>
+            </div>
+            
+            @if (IncludeColumnMappings && ColumnMappings.Count > 0)
+            {
+                <div class="mb-3">
+                    <h6>Kolon Eşleştirmeleri</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Kaynak Kolon</th>
+                                    <th>Hedef Kolon</th>
+                                    <th>Veri Tipi</th>
+                                    <th>Anahtar</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var mapping in ColumnMappings)
+                                {
+                                    <tr>
+                                        <td>@mapping.SourceColumnName</td>
+                                        <td>@mapping.TargetColumnName</td>
+                                        <td>@mapping.DataType</td>
+                                        <td>
+                                            <input type="checkbox" disabled 
+                                                checked="@(SaveKeyColumn == mapping.SourceColumnName)" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+                 RenderStyle="ButtonRenderStyle.Secondary"
+                 Click="@CloseSaveQueryPopup"
+                 CssClass="me-2" />
+            <DxButton Text="Kaydet"
+                 RenderStyle="ButtonRenderStyle.Primary"
+                 Click="@SaveQuery" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Kolon Eşleştirme Popupı -->
+<DxPopup HeaderText="Kolon Eşleştirmelerini Yönet"
+        @bind-Visible="@IsColumnMappingPopupVisible"
+        ShowFooter="true"
+        Width="900px"
+        CloseOnEscapeKey="false"
+        CloseOnOutsideClick="false">
+    <HeaderTemplate>
+        <span class="fs-5">Kolon Eşleştirmelerini Yönet</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="mb-3">
+            <p>Bu ekranda, veritabanından gelen kaynak kolonların SQL Server'daki hedef kolonlara nasıl eşleştirileceğini tanımlayabilirsiniz.</p>
+            <p>Ayarlardan memnunsanız, sorguyu önizledikten sonra eşleştirmeleri daha doğru yapılandırabilirsiniz.</p>
+        </div>
+        
+        <div class="mb-3">
+            <div class="d-flex justify-content-between mb-2">
+                <h6 class="mb-0">Mevcut Kolon Eşleştirmeleri</h6>
+                <div>
+                    <DxButton Text="Sorgudan Kolonları Al"
+                         RenderStyle="ButtonRenderStyle.Light"
+                         IconCssClass="fa fa-refresh"
+                         Click="@FetchColumnsFromQuery"
+                         Enabled="@(!string.IsNullOrEmpty(QueryText))"
+                         CssClass="me-2" />
+                         
+                    <DxButton Text="Yeni Kolon Ekle"
+                         RenderStyle="ButtonRenderStyle.Primary"
+                         IconCssClass="fa fa-plus"
+                         Click="@AddNewColumnMapping" />
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 20%;">Kaynak Kolon</th>
+                            <th style="width: 20%;">Hedef Kolon</th>
+                            <th style="width: 15%;">Veri Tipi</th>
+                            <th style="width: 10%;">Uzunluk</th>
+                            <th style="width: 10%;">Hassasiyet</th>
+                            <th style="width: 5%;">Anahtar</th>
+                            <th style="width: 5%;">Boş?</th>
+                            <th style="width: 5%;">Sıra</th>
+                            <th style="width: 10%;">İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (ColumnMappings.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="9" class="text-center">Henüz kolon eşleştirmesi yapılmamış.</td>
+                            </tr>
+                        }
+                        @for (int i = 0; i < ColumnMappings.Count; i++)
+                        {
+                            var index = i;
+                            <tr>
+                                <td>
+                                    <DxTextBox @bind-Text="@ColumnMappings[index].SourceColumnName" 
+                                        NullText="Kaynak kolon adı" />
+                                </td>
+                                <td>
+                                    <DxTextBox @bind-Text="@ColumnMappings[index].TargetColumnName" 
+                                        NullText="Hedef kolon adı" />
+                                </td>
+                                <td>
+                                    <DxComboBox Data="@SqlDataTypes"
+                                        @bind-Value="@ColumnMappings[index].DataType"
+                                        NullText="Veri tipi seçin" />
+                                </td>
+                                <td>
+                                    <DxSpinEdit @bind-Value="@ColumnMappings[index].Length" />
+                                </td>
+                                <td>
+                                    <DxSpinEdit @bind-Value="@ColumnMappings[index].Precision" />
+                                </td>
+                                <td class="text-center">
+                                    <DxCheckBox @bind-Checked="@ColumnMappings[index].IsPrimaryKey" />
+                                </td>
+                                <td class="text-center">
+                                    <DxCheckBox @bind-Checked="@ColumnMappings[index].AllowNull" />
+                                </td>
+                                <td>
+                                    <DxSpinEdit @bind-Value="@ColumnMappings[index].SortOrder" />
+                                </td>
+                                <td>
+                                    <div class="d-flex justify-content-center">
+                                        <DxButton Text=""
+                                            IconCssClass="fa fa-trash"
+                                            RenderStyle="ButtonRenderStyle.Danger"
+                                            CssClass="btn-sm"
+                                            Click="@(() => RemoveColumnMapping(index))" />
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+                 RenderStyle="ButtonRenderStyle.Secondary"
+                 Click="@(() => IsColumnMappingPopupVisible = false)"
+                 CssClass="me-2" />
+            <DxButton Text="Kaydet"
+                 RenderStyle="ButtonRenderStyle.Primary"
+                 Click="@SaveColumnMappings" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Tablo İşlemi Onay Popupı -->
+<DxPopup HeaderText="İşlem Onayı"
+        @bind-Visible="@IsTableOperationConfirmVisible"
+        ShowFooter="true"
+        Width="400px">
+    <HeaderTemplate>
+        <span class="fs-5">İşlem Onayı</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <p>@TableOperationConfirmMessage</p>
+        
+        @if (CurrentTableOperation == "drop")
+        {
+            <div class="alert alert-danger">
+                <i class="fa fa-exclamation-triangle"></i> Bu işlem geri alınamaz!
+            </div>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+                 RenderStyle="ButtonRenderStyle.Secondary"
+                 Click="@(() => IsTableOperationConfirmVisible = false)"
+                 CssClass="me-2" />
+            <DxButton Text="Onayla"
+                 RenderStyle="ButtonRenderStyle.Danger"
+                 Click="@ConfirmTableOperationAction" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+@code {
+    private string QueryText { get; set; } = string.Empty;
+    private string TargetTableName { get; set; } = string.Empty;
+    private string KeyColumn { get; set; } = string.Empty;
+    private string SelectedColumns { get; set; } = string.Empty;
+    private int RowLimit { get; set; } = 1000;
+    private bool IsProcessing { get; set; } = false;
+    private string ResultMessage { get; set; } = string.Empty;
+    private bool IsSuccess { get; set; } = false;
+    private List<Dictionary<string, object>> PreviewData { get; set; } = new List<Dictionary<string, object>>();
+    private List<dynamic> GridData { get; set; } = new List<dynamic>();
+    private DxGrid PreviewGrid { get; set; }
+    private string CurrentQueryName { get; set; } = string.Empty;
+    
+    // Veritabanı bağlantıları
+    private List<DatabaseConnection> DatabaseConnections { get; set; } = new List<DatabaseConnection>();
+    private int SelectedDatabaseId { get; set; }
+    
+    // Sorgu kaydetme popup
+    private bool IsSaveQueryPopupVisible { get; set; } = false;
+    private string SaveQueryName { get; set; } = string.Empty;
+    private string SaveTableName { get; set; } = string.Empty;
+    private string SaveKeyColumn { get; set; } = string.Empty;
+    private string SaveQueryDescription { get; set; } = string.Empty;
+    private bool IncludeColumnMappings { get; set; } = true;
+    
+    // Tablo işlemleri popup
+    private bool IsTableOperationsPopupVisible { get; set; } = false;
+    private bool IsTableOperationConfirmVisible { get; set; } = false;
+    private string TableOperationConfirmMessage { get; set; } = string.Empty;
+    private string CurrentTableOperation { get; set; } = string.Empty;
+    
+    // Kolon eşleştirme popup
+    private bool IsColumnMappingPopupVisible { get; set; } = false;
+    private List<QueryColumnMapping> ColumnMappings { get; set; } = new List<QueryColumnMapping>();
+    private List<string> SqlDataTypes { get; set; } = new List<string> {
+        "INT", "BIGINT", "SMALLINT", "TINYINT", "BIT",
+        "DECIMAL", "NUMERIC", "FLOAT", "REAL", "MONEY",
+        "NVARCHAR", "VARCHAR", "CHAR", "NCHAR", "TEXT", "NTEXT",
+        "DATETIME", "DATE", "TIME", "DATETIME2", "DATETIMEOFFSET",
+        "UNIQUEIDENTIFIER", "VARBINARY", "IMAGE", "XML"
+    };
+    
+    // Kayıtlı sorgular popup
+    private bool IsSavedQueriesPopupVisible { get; set; } = false;
+    private List<SavedQuery> SavedQueries { get; set; } = new List<SavedQuery>();
+    private DxGrid SavedQueriesGrid { get; set; }
+    private object SelectedSavedQueryObj { get; set; }
+    // Helper method to get the selected query as the correct type
+    private SavedQuery GetSelectedSavedQuery() => SelectedSavedQueryObj as SavedQuery;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDatabaseConnections();
+        await LoadSavedQueries();
+    }
+
+    private async Task LoadDatabaseConnections()
+    {
+        try
+        {
+            DatabaseConnections = await QueryService.GetAllDatabaseConnectionsAsync();
+            
+            if (DatabaseConnections.Count > 0)
+            {
+                SelectedDatabaseId = DatabaseConnections[0].Id;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Veritabanı bağlantıları yüklenirken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+    }
+    
+    private async Task LoadSavedQueries()
+    {
+        try
+        {
+            SavedQueries = await QueryService.GetAllSavedQueriesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kaydedilmiş sorgular yüklenirken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+    }
+    
+    private void ShowSavedQueriesPopup()
+    {
+        SelectedSavedQueryObj = null;
+        IsSavedQueriesPopupVisible = true;
+    }
+    
+    private async Task LoadSelectedQuery()
+    {
+        if (SelectedSavedQueryObj == null)
+            return;
+            
+        var selectedQuery = GetSelectedSavedQuery();
+        
+        if (selectedQuery != null)
+        {
+            QueryText = selectedQuery.QueryText;
+            TargetTableName = selectedQuery.TargetTableName;
+            KeyColumn = selectedQuery.KeyColumn;
+            SelectedDatabaseId = selectedQuery.DatabaseConnectionId;
+            CurrentQueryName = selectedQuery.Name;
+            
+            // Sorgu adını kaydetme formuna da ekle
+            SaveQueryName = selectedQuery.Name;
+            
+            // Kolon eşleştirmelerini yükle
+            ColumnMappings.Clear();
+            if (selectedQuery.ColumnMappings != null && selectedQuery.ColumnMappings.Any())
+            {
+                foreach (var mapping in selectedQuery.ColumnMappings)
+                {
+                    ColumnMappings.Add(new QueryColumnMapping
+                    {
+                        SavedQueryId = mapping.SavedQueryId,
+                        SourceColumnName = mapping.SourceColumnName,
+                        TargetColumnName = mapping.TargetColumnName,
+                        DataType = mapping.DataType,
+                        Length = mapping.Length,
+                        Precision = mapping.Precision,
+                        IsPrimaryKey = mapping.IsPrimaryKey,
+                        AllowNull = mapping.AllowNull,
+                        SortOrder = mapping.SortOrder
+                    });
+                }
+            }
+            
+            ResultMessage = $"\"{selectedQuery.Name}\" sorgusu başarıyla yüklendi.";
+            IsSuccess = true;
+        }
+        
+        IsSavedQueriesPopupVisible = false;
+    }
+
+    private void ShowSaveQueryPopup()
+    {
+        if (string.IsNullOrWhiteSpace(QueryText))
+        {
+            ResultMessage = "Lütfen bir sorgu yazın.";
+            IsSuccess = false;
+            return;
+        }
+
+        // Form alanlarını doldur
+        SaveQueryName = string.IsNullOrEmpty(SaveQueryName) ? "Yeni Sorgu" : SaveQueryName;
+        SaveTableName = TargetTableName;
+        SaveKeyColumn = KeyColumn;
+        SaveQueryDescription = string.Empty;
+        
+        IsSaveQueryPopupVisible = true;
+    }
+
+    private void CloseSaveQueryPopup()
+    {
+        IsSaveQueryPopupVisible = false;
+    }
+
+    private async Task SaveQuery()
+    {
+        if (string.IsNullOrWhiteSpace(SaveQueryName))
+        {
+            ResultMessage = "Lütfen bir sorgu adı girin.";
+            IsSuccess = false;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SaveTableName))
+        {
+            ResultMessage = "Lütfen bir hedef tablo adı girin.";
+            IsSuccess = false;
+            return;
+        }
+
+        try
+        {
+            var query = new SavedQuery
+            {
+                Name = SaveQueryName,
+                QueryText = QueryText,
+                TargetTableName = SaveTableName,
+                KeyColumn = SaveKeyColumn,
+                Description = SaveQueryDescription,
+                DatabaseConnectionId = SelectedDatabaseId,
+                CreatedAt = DateTime.Now
+            };
+            
+            // Kolon eşleştirmelerini ekle
+            if (IncludeColumnMappings && ColumnMappings.Count > 0)
+            {
+                query.ColumnMappings = new List<QueryColumnMapping>();
+                
+                foreach (var mapping in ColumnMappings)
+                {
+                    query.ColumnMappings.Add(new QueryColumnMapping
+                    {
+                        SourceColumnName = mapping.SourceColumnName,
+                        TargetColumnName = mapping.TargetColumnName,
+                        DataType = mapping.DataType,
+                        Length = mapping.Length,
+                        Precision = mapping.Precision,
+                        IsPrimaryKey = mapping.IsPrimaryKey,
+                        AllowNull = mapping.AllowNull,
+                        SortOrder = mapping.SortOrder
+                    });
+                }
+            }
+
+            await QueryService.AddSavedQueryAsync(query);
+            
+            // Kayıtlı sorgu listesini güncelle
+            await LoadSavedQueries();
+            
+            // Sorgu adını görüntüle
+            CurrentQueryName = SaveQueryName;
+            
+            // Hedef tabloyu güncelle
+            TargetTableName = SaveTableName;
+            
+            CloseSaveQueryPopup();
+            
+            ResultMessage = $"\"{SaveQueryName}\" sorgusu başarıyla kaydedildi.";
+            IsSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu kaydedilirken hata oluştu");
+            ResultMessage = $"Sorgu kaydedilirken hata oluştu: {ex.Message}";
+            IsSuccess = false;
+        }
+    }
+    
+    private void ShowColumnMappingPopup()
+    {
+        if (string.IsNullOrWhiteSpace(QueryText))
+        {
+            ResultMessage = "Lütfen önce bir sorgu yazın.";
+            IsSuccess = false;
+            return;
+        }
+        
+        IsColumnMappingPopupVisible = true;
+    }
+    
+    private void AddNewColumnMapping()
+    {
+        ColumnMappings.Add(new QueryColumnMapping
+        {
+            SourceColumnName = "",
+            TargetColumnName = "",
+            DataType = "NVARCHAR",
+            Length = 100,
+            Precision = 0,
+            IsPrimaryKey = false,
+            AllowNull = true,
+            SortOrder = ColumnMappings.Count + 1
+        });
+    }
+    
+    private void RemoveColumnMapping(int index)
+    {
+        if (index >= 0 && index < ColumnMappings.Count)
+        {
+            ColumnMappings.RemoveAt(index);
+            
+            // Sıra numaralarını güncelle
+            for (int i = 0; i < ColumnMappings.Count; i++)
+            {
+                ColumnMappings[i].SortOrder = i + 1;
+            }
+        }
+    }
+    
+    private async Task FetchColumnsFromQuery()
+    {
+        if (string.IsNullOrWhiteSpace(QueryText) || SelectedDatabaseId <= 0)
+        {
+            ResultMessage = "Lütfen önce bir sorgu ve veritabanı bağlantısı seçin.";
+            IsSuccess = false;
+            return;
+        }
+        
+        IsProcessing = true;
+        StateHasChanged();
+        
+        try
+        {
+            // Sorguyu çalıştırarak kolonları al
+            var result = await QueryService.PreviewQueryAsync(SelectedDatabaseId, QueryText);
+            
+            if (result.success && result.data.Count > 0)
+            {
+                // Kolon listesini temizle
+                ColumnMappings.Clear();
+                
+                // İlk satırdan kolon isimlerini al
+                var firstRow = result.data[0];
+                int sortOrder = 1;
+                
+                foreach (var key in firstRow.Keys)
+                {
+                    var value = firstRow[key];
+                    var dataType = DetermineDataType(value);
+                    
+                    ColumnMappings.Add(new QueryColumnMapping
+                    {
+                        SourceColumnName = key,
+                        TargetColumnName = key,
+                        DataType = dataType,
+                        Length = dataType.Contains("VARCHAR") ? 255 : 0,
+                        Precision = dataType == "DECIMAL" ? 2 : 0,
+                        IsPrimaryKey = KeyColumn == key,
+                        AllowNull = true,
+                        SortOrder = sortOrder++
+                    });
+                }
+                
+                ResultMessage = $"{ColumnMappings.Count} kolon başarıyla alındı.";
+                IsSuccess = true;
+            }
+            else
+            {
+                ResultMessage = "Sorgu çalıştırılamadı veya veri dönmedi. Kolon bilgileri alınamadı.";
+                IsSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kolonlar sorgudan alınırken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+        finally
+        {
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+    
+    private string DetermineDataType(object value)
+    {
+        if (value == null)
+            return "NVARCHAR";
+            
+        if (value is int || value is Int32 || value is Int16 || value is byte)
+            return "INT";
+        else if (value is long || value is Int64)
+            return "BIGINT";
+        else if (value is decimal || value is double || value is float)
+            return "DECIMAL";
+        else if (value is bool)
+            return "BIT";
+        else if (value is DateTime)
+            return "DATETIME";
+        else if (value is Guid)
+            return "UNIQUEIDENTIFIER";
+        else if (value is byte[])
+            return "VARBINARY";
+        else
+            return "NVARCHAR";
+    }
+    
+    private void SaveColumnMappings()
+    {
+        // Anahtar kolonu güncelle (varsa)
+        var primaryKeyMapping = ColumnMappings.FirstOrDefault(m => m.IsPrimaryKey);
+        if (primaryKeyMapping != null)
+        {
+            KeyColumn = primaryKeyMapping.SourceColumnName;
+        }
+        
+        // Popup'ı kapat
+        IsColumnMappingPopupVisible = false;
+        
+        ResultMessage = "Kolon eşleştirmeleri başarıyla kaydedildi.";
+        IsSuccess = true;
+    }
+    
+    private void ConfirmTableOperation(string operation)
+    {
+        CurrentTableOperation = operation;
+        
+        if (operation == "truncate")
+        {
+            TableOperationConfirmMessage = $"\"{TargetTableName}\" tablosundaki tüm verileri silmek istediğinize emin misiniz?";
+        }
+        else if (operation == "drop")
+        {
+            TableOperationConfirmMessage = $"\"{TargetTableName}\" tablosunu tamamen silmek istediğinize emin misiniz?";
+        }
+        
+        IsTableOperationConfirmVisible = true;
+    }
+
+    private async Task ConfirmTableOperationAction()
+    {
+        try
+        {
+            if (CurrentTableOperation == "truncate")
+            {
+                await QueryService.TruncateTableAsync(TargetTableName);
+                ResultMessage = $"\"{TargetTableName}\" tablosu başarıyla temizlendi (TRUNCATE).";
+                IsSuccess = true;
+            }
+            else if (CurrentTableOperation == "drop")
+            {
+                await QueryService.DropTableAsync(TargetTableName);
+                ResultMessage = $"\"{TargetTableName}\" tablosu başarıyla silindi (DROP).";
+                IsSuccess = true;
+                
+                // Tabloyu silince, mevcut veriler de temizlenmeli
+                GridData = new List<dynamic>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, $"Tablo işlemi sırasında hata oluştu: {ex.Message}");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+        finally
+        {
+            IsTableOperationConfirmVisible = false;
+        }
+    }
+    
+    private async Task ViewTable()
+    {
+        if (string.IsNullOrWhiteSpace(TargetTableName))
+        {
+            ResultMessage = "Lütfen bir tablo adı girin.";
+            IsSuccess = false;
+            return;
+        }
+
+        try
+        {
+            IsProcessing = true;
+            ResultMessage = string.Empty;
+            
+            // Kolon seçimi için string hazırla
+            string columnsToSelect = "*"; // Varsayılan olarak tüm kolonları seç
+            if (!string.IsNullOrWhiteSpace(SelectedColumns))
+            {
+                columnsToSelect = SelectedColumns.Trim();
+            }
+            
+            var data = await QueryService.QuerySqlTableAsync(
+                TargetTableName,
+                RowLimit,
+                columnsToSelect,
+                null); // whereClause null olarak gönderiliyor
+            
+            if (data.Count > 0)
+            {
+                // Dinamik veriyi Grid için ExpandoObject listesine dönüştür
+                var gridData = new List<dynamic>();
+
+                foreach (var row in data)
+                {
+                    dynamic expandoObj = new System.Dynamic.ExpandoObject();
+                    var expandoDict = (IDictionary<string, object>)expandoObj;
+
+                    foreach (var kvp in row)
+                    {
+                        expandoDict[kvp.Key] = kvp.Value;
+                    }
+
+                    gridData.Add(expandoObj);
+                }
+
+                GridData = gridData;
+                ResultMessage = $"\"{TargetTableName}\" tablosundan {data.Count} kayıt görüntüleniyor.";
+                IsSuccess = true;
+                
+                // Kolon eşleştirmelerini güncelle
+                await LoadTableColumnsForMapping(TargetTableName);
+            }
+            else
+            {
+                ResultMessage = $"\"{TargetTableName}\" tablosunda kayıt bulunamadı.";
+                IsSuccess = true;
+                GridData = new List<dynamic>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Tablo görüntülenirken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+            GridData = new List<dynamic>();
+        }
+        finally
+        {
+            IsProcessing = false;
+        }
+    }
+    
+    private async Task LoadTableColumnsForMapping(string tableName)
+    {
+        try
+        {
+            var columns = await QueryService.GetTableColumnsAsync(tableName);
+            
+            if (columns.Count > 0)
+            {
+                // Kolon eşleştirme listesini temizle
+                ColumnMappings.Clear();
+                
+                int sortOrder = 1;
+                foreach (var column in columns)
+                {
+                    string columnName = column["Name"].ToString();
+                    string dataType = column["DataType"].ToString();
+                    bool isPrimaryKey = Convert.ToBoolean(column["IsPrimaryKey"]);
+                    bool isNullable = Convert.ToBoolean(column["IsNullable"]);
+                    
+                    // Uzunluk değerini al
+                    int length = 0;
+                    if (column["MaxLength"] != null && column["MaxLength"] != DBNull.Value)
+                    {
+                        int.TryParse(column["MaxLength"].ToString(), out length);
+                    }
+                    
+                    // Hassasiyet değerini al
+                    int precision = 0;
+                    if (column["Precision"] != null && column["Precision"] != DBNull.Value)
+                    {
+                        int.TryParse(column["Precision"].ToString(), out precision);
+                    }
+                    
+                    ColumnMappings.Add(new QueryColumnMapping
+                    {
+                        SourceColumnName = columnName,
+                        TargetColumnName = columnName,
+                        DataType = dataType.ToUpper(),
+                        Length = length,
+                        Precision = precision,
+                        IsPrimaryKey = isPrimaryKey,
+                        AllowNull = isNullable,
+                        SortOrder = sortOrder++
+                    });
+                }
+                
+                // Anahtar kolonu güncelle
+                var primaryKey = ColumnMappings.FirstOrDefault(c => c.IsPrimaryKey);
+                if (primaryKey != null && string.IsNullOrEmpty(KeyColumn))
+                {
+                    KeyColumn = primaryKey.SourceColumnName;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Tablo kolonları alınırken hata oluştu");
+        }
+    }
+    
+    private async Task ExecuteQuery()
+    {
+        if (SelectedDatabaseId <= 0)
+        {
+            ResultMessage = "Lütfen bir veritabanı bağlantısı seçin.";
+            IsSuccess = false;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(QueryText))
+        {
+            ResultMessage = "Lütfen bir sorgu girin.";
+            IsSuccess = false;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(TargetTableName))
+        {
+            ResultMessage = "Lütfen bir hedef tablo adı girin.";
+            IsSuccess = false;
+            return;
+        }
+
+        IsProcessing = true;
+        ResultMessage = string.Empty;
+        GridData = new List<dynamic>();
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Sorgu çalıştırılıyor...");
+            
+            var result = await QueryService.ExecuteQueryAndSaveToSqlAsync(
+                SelectedDatabaseId,
+                QueryText,
+                TargetTableName,
+                KeyColumn);
+
+            ResultMessage = result.message;
+            IsSuccess = result.success;
+
+            if (result.success && result.recordCount > 0)
+            {
+                // Tabloyu görüntüle
+                await ViewTable();
+                
+                // Sorgu başarıyla çalıştırıldığında, kolon eşleştirmelerini otomatik güncelleyelim
+                if (ColumnMappings.Count == 0)
+                {
+                    await LoadTableColumnsForMapping(TargetTableName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu çalıştırılırken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+        finally
+        {
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PreviewQuery()
+    {
+        if (SelectedDatabaseId <= 0)
+        {
+            ResultMessage = "Lütfen bir veritabanı bağlantısı seçin.";
+            IsSuccess = false;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(QueryText))
+        {
+            ResultMessage = "Lütfen bir sorgu girin.";
+            IsSuccess = false;
+            return;
+        }
+
+        IsProcessing = true;
+        ResultMessage = string.Empty;
+        GridData = new List<dynamic>();
+        StateHasChanged();
+
+        try
+        {
+            var result = await QueryService.PreviewQueryAsync(SelectedDatabaseId, QueryText);
+
+            if (result.success && result.data.Count > 0)
+            {
+                // Dinamik veriyi Grid için ExpandoObject listesine dönüştür
+                var gridData = new List<dynamic>();
+
+                foreach (var row in result.data)
+                {
+                    dynamic expandoObj = new System.Dynamic.ExpandoObject();
+                    var expandoDict = (IDictionary<string, object>)expandoObj;
+
+                    foreach (var kvp in row)
+                    {
+                        expandoDict[kvp.Key] = kvp.Value;
+                    }
+
+                    gridData.Add(expandoObj);
+                }
+
+                GridData = gridData;
+                ResultMessage = result.message;
+                IsSuccess = true;
+                
+                // Sorgu kolonlarından otomatik kolon eşleştirmeleri oluştur
+                if (ColumnMappings.Count == 0 && result.data.Count > 0)
+                {
+                    // İlk satırdan kolon isimlerini al
+                    var firstRow = result.data[0];
+                    int sortOrder = 1;
+                    
+                    foreach (var key in firstRow.Keys)
+                    {
+                        var value = firstRow[key];
+                        var dataType = DetermineDataType(value);
+                        
+                        ColumnMappings.Add(new QueryColumnMapping
+                        {
+                            SourceColumnName = key,
+                            TargetColumnName = key,
+                            DataType = dataType,
+                            Length = dataType.Contains("VARCHAR") ? 255 : 0,
+                            Precision = dataType == "DECIMAL" ? 2 : 0,
+                            IsPrimaryKey = KeyColumn == key,
+                            AllowNull = true,
+                            SortOrder = sortOrder++
+                        });
+                    }
+                }
+            }
+            else
+            {
+                ResultMessage = result.message;
+                IsSuccess = result.success;
+                GridData = new List<dynamic>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu önizleme için çalıştırılırken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+        }
+        finally
+        {
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (PreviewGrid == null || GridData == null || GridData.Count == 0)
+        {
+            ResultMessage = "Dışa aktarılacak veri bulunamadı.";
+            IsSuccess = false;
+            return;
+        }
+
+        try
+        {
+            // DevExpress Grid Excel export
+            await PreviewGrid.ExportToXlsxAsync($"SqlQuery_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            ResultMessage = "Veriler Excel'e başarıyla aktarıldı.";
+            IsSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            ResultMessage = $"Excel'e aktarma hatası: {ex.Message}";
+            IsSuccess = false;
+        }
+    }
+}

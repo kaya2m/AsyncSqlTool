@@ -1,0 +1,813 @@
+﻿@page "/database-manager"
+@rendermode InteractiveServer
+@using AsyncSqlTool.Models
+@using AsyncSqlTool.Services
+@using DevExpress.DocumentServices.ServiceModel.DataContracts
+@using Microsoft.Extensions.Logging
+@using DevExpress.Blazor
+@inject QueryService QueryService
+@inject ILogger<DatabaseManagerPage> Logger
+
+<style>
+    .card-hover:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transition: box-shadow 0.3s ease;
+    }
+
+    .form-container {
+    max-width: 600px;
+    }
+
+    :deep(.connection-grid) {
+    height: 400px;
+    overflow: auto;
+    }
+
+    .badge-db-type {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    }
+
+    .container-fluid {
+    padding: 15px;
+    }
+</style>
+
+<div class="container-fluid">
+    <DxTabs @bind-ActiveTabIndex="@ActiveTabIndex">
+        <DxTabPage Text="Veritabanı Bağlantıları">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2>Veritabanı Bağlantıları</h2>
+                <DxButton Text="Yeni Bağlantı Ekle"
+                IconCssClass="fa fa-plus"
+                RenderStyle="ButtonRenderStyle.Primary"
+                Click="@(() => OpenConnectionForm(null))" />
+            </div>
+
+            @if (DatabaseConnections == null)
+            {
+                <div class="text-center my-4">
+                    <DxSpinner Size="SpinnerSize.Large" />
+                </div>
+            }
+            else if (!DatabaseConnections.Any())
+            {
+                <DxCallout Type="CalloutType.Info" IconCssClass="fa fa-info-circle">
+                    <HeaderTemplate>
+                        <h5>Henüz Veritabanı Bağlantısı Bulunmuyor</h5>
+                    </HeaderTemplate>
+                    <ContentTemplate>
+                        <p>Veritabanı bağlantısı eklemek için "Yeni Bağlantı Ekle" butonuna tıklayın.</p>
+                    </ContentTemplate>
+                </DxCallout>
+            }
+            else
+            {
+                <div class="row">
+                    @foreach (var connection in DatabaseConnections)
+                    {
+                        <div class="col-md-6 col-lg-4 mb-4">
+                            <DxCard CssClass="h-100 card-hover">
+                                <HeaderTemplate>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <h5 class="mb-0">@connection.Name</h5>
+                                        <span class="badge @GetDatabaseTypeBadgeClass(connection.DatabaseType) badge-db-type">
+                                            @connection.DatabaseType
+                                        </span>
+                                    </div>
+                                </HeaderTemplate>
+                                <BodyTemplate>
+                                    <p class="text-muted small mb-1">Açıklama:</p>
+                                    <p>@(string.IsNullOrEmpty(connection.Description) ? "Açıklama yok" : connection.Description)</p>
+
+                                    <p class="text-muted small mb-1">Bağlantı Dizesi:</p>
+                                    <p class="text-truncate">@MaskConnectionString(connection.ConnectionString)</p>
+                                </BodyTemplate>
+                                <FooterTemplate>
+                                    <div class="d-flex justify-content-between">
+                                        <DxButton Text="Test Et"
+                                        RenderStyle="ButtonRenderStyle.Light"
+                                        IconCssClass="fa fa-check-circle"
+                                        Click="@(() => TestConnection(connection))" />
+
+                                        <div>
+                                            <DxButton Text="Düzenle"
+                                            RenderStyle="ButtonRenderStyle.Secondary"
+                                            IconCssClass="fa fa-edit"
+                                            Click="@(() => OpenConnectionForm(connection))" />
+
+                                            <DxButton Text="Sil"
+                                            RenderStyle="ButtonRenderStyle.Danger"
+                                            IconCssClass="fa fa-trash"
+                                            Click="@(() => ConfirmDeleteConnection(connection))" />
+                                        </div>
+                                    </div>
+                                </FooterTemplate>
+                            </DxCard>
+                        </div>
+                    }
+                </div>
+            }
+        </DxTabPage>
+
+        <DxTabPage Text="Kaydedilmiş Sorgular">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2>Kaydedilmiş Sorgular</h2>
+                <DxButton Text="Yeni Sorgu Ekle"
+                IconCssClass="fa fa-plus"
+                RenderStyle="ButtonRenderStyle.Primary"
+                Click="@(() => OpenQueryForm(null))" />
+            </div>
+
+            @if (SavedQueries == null)
+            {
+                <div class="text-center my-4">
+                    <DxSpinner Size="SpinnerSize.Large" />
+                </div>
+            }
+            else if (!SavedQueries.Any())
+            {
+                <DxCallout Type="CalloutType.Info" IconCssClass="fa fa-info-circle">
+                    <HeaderTemplate>
+                        <h5>Henüz Kaydedilmiş Sorgu Bulunmuyor</h5>
+                    </HeaderTemplate>
+                    <ContentTemplate>
+                        <p>Sorgu eklemek için "Yeni Sorgu Ekle" butonuna tıklayın veya sorgu sayfasından sorgu kaydetme işlemini gerçekleştirin.</p>
+                    </ContentTemplate>
+                </DxCallout>
+            }
+            else
+            {
+                <div class="row">
+                    @foreach (var query in SavedQueries)
+                    {
+                        <div class="col-md-6 col-lg-4 mb-4">
+                            <DxCard CssClass="h-100 card-hover">
+                                <HeaderTemplate>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <h5 class="mb-0">@query.Name</h5>
+                                        <span class="badge badge-primary badge-db-type">
+                                            @(query.DatabaseConnection?.Name ?? "Bilinmeyen VT")
+                                        </span>
+                                    </div>
+                                </HeaderTemplate>
+                                <BodyTemplate>
+                                    <p class="text-muted small mb-1">Hedef Tablo:</p>
+                                    <p>@query.TargetTableName</p>
+
+                                    @if (!string.IsNullOrEmpty(query.KeyColumn))
+                                    {
+                                        <p class="text-muted small mb-1">Anahtar Kolon:</p>
+                                        <p>@query.KeyColumn</p>
+                                    }
+
+                                    <p class="text-muted small mb-1">Sorgu:</p>
+                                    <div class="bg-light p-2 rounded" style="max-height: 100px; overflow: auto;">
+                                        <pre class="mb-0" style="font-size: 0.8rem; white-space: pre-wrap;">@query.QueryText</pre>
+                                    </div>
+
+                                    @if (query.LastExecuted.HasValue)
+                                    {
+                                        <p class="text-muted small mt-2 mb-0">Son Çalıştırma: @query.LastExecuted.Value.ToString("dd.MM.yyyy HH:mm")</p>
+                                    }
+                                </BodyTemplate>
+                                <FooterTemplate>
+                                    <div class="d-flex justify-content-between">
+                                        <DxButton Text="Çalıştır"
+                                        RenderStyle="ButtonRenderStyle.Success"
+                                        IconCssClass="fa fa-play"
+                                        Click="@(() => ExecuteQuery(query))" />
+
+                                        <div>
+                                            <DxButton Text="Düzenle"
+                                            RenderStyle="ButtonRenderStyle.Secondary"
+                                            IconCssClass="fa fa-edit"
+                                            Click="@(() => OpenQueryForm(query))" />
+
+                                            <DxButton Text="Sil"
+                                            RenderStyle="ButtonRenderStyle.Danger"
+                                            IconCssClass="fa fa-trash"
+                                            Click="@(() => ConfirmDeleteQuery(query))" />
+                                        </div>
+                                    </div>
+                                </FooterTemplate>
+                            </DxCard>
+                        </div>
+                    }
+                </div>
+            }
+        </DxTabPage>
+    </DxTabs>
+</div>
+
+<!-- Veritabanı Bağlantı Formu -->
+<DxPopup HeaderText="Veritabanı Bağlantısı"
+@bind-Visible="IsConnectionFormVisible"
+ShowFooter="true"
+Width="700px"
+CloseOnEscapeKey="false"
+CloseOnOutsideClick="false">
+    <HeaderTemplate>
+        <span class="fs-5">@(EditingConnection.Id > 0 ? "Bağlantı Düzenle" : "Yeni Bağlantı Ekle")</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="form-container mx-auto">
+            <div class="mb-3">
+                <DxTextBox @bind-Text="@EditingConnection.Name"
+                Label="Bağlantı Adı"
+                CssClass="w-100"
+                NullText="Bağlantı adı girin..."
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="mb-3">
+                <DxComboBox Data="@DatabaseTypes"
+                @bind-Value="@EditingConnection.DatabaseType"
+                Label="Veritabanı Türü"
+                CssClass="w-100"
+                LabelPosition="LabelPosition.Top" />
+                <span class="text-muted small">Seçili veritabanı türü: @EditingConnection.DatabaseType</span>
+            </div>
+
+            <div class="mb-3">
+                <DxMemo @bind-Text="@EditingConnection.ConnectionString"
+                Label="Bağlantı Dizesi"
+                CssClass="w-100"
+                Rows="3"
+                NullText="Veritabanı bağlantı dizesini girin..."
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="mb-3">
+                <DxMemo @bind-Text="@EditingConnection.Description"
+                Label="Açıklama"
+                CssClass="w-100"
+                Rows="2"
+                NullText="Açıklama girin (opsiyonel)..."
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="mb-3">
+                <DxCheckBox @bind-Checked="@EditingConnection.IsActive"
+                Label="Aktif"
+                LabelPosition="LabelPosition.Right" />
+            </div>
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+            RenderStyle="ButtonRenderStyle.Secondary"
+            Click="@CloseConnectionForm"
+            CssClass="me-2" />
+            <DxButton Text="@(EditingConnection.Id > 0 ? "Güncelle" : "Ekle")"
+            RenderStyle="ButtonRenderStyle.Primary"
+            Click="@SaveConnection" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Sorgu Formu -->
+<DxPopup HeaderText="Kaydedilmiş Sorgu"
+@bind-Visible="IsQueryFormVisible"
+ShowFooter="true"
+Width="800px"
+CloseOnEscapeKey="false"
+CloseOnOutsideClick="false">
+    <HeaderTemplate>
+        <span class="fs-5">@(EditingQuery.Id > 0 ? "Sorgu Düzenle" : "Yeni Sorgu Ekle")</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="form-container mx-auto">
+            <div class="mb-3">
+                <DxTextBox @bind-Text="@EditingQuery.Name"
+                Label="Sorgu Adı"
+                CssClass="w-100"
+                NullText="Sorgu adı girin..."
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="mb-3">
+                <DxComboBox Data="@DatabaseConnections"
+                @bind-Value="@EditingQuery.DatabaseConnectionId"
+                TextFieldName="Name"
+                ValueFieldName="Id"
+                Label="Veritabanı Bağlantısı"
+                CssClass="w-100"
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="mb-3">
+                <DxMemo @bind-Text="@EditingQuery.QueryText"
+                Label="SQL Sorgusu"
+                CssClass="w-100"
+                Rows="5"
+                NullText="SQL sorgusunu girin..."
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <DxTextBox @bind-Text="@EditingQuery.TargetTableName"
+                    Label="Hedef Tablo Adı"
+                    CssClass="w-100"
+                    NullText="SQL Server tablo adı..."
+                    LabelPosition="LabelPosition.Top" />
+                </div>
+                <div class="col-md-6">
+                    <DxTextBox @bind-Text="@EditingQuery.KeyColumn"
+                    Label="Anahtar Kolon (Opsiyonel)"
+                    CssClass="w-100"
+                    NullText="Örn: CardCode, ItemCode..."
+                    LabelPosition="LabelPosition.Top" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <DxMemo @bind-Text="@EditingQuery.Description"
+                Label="Açıklama"
+                CssClass="w-100"
+                Rows="2"
+                NullText="Açıklama girin (opsiyonel)..."
+                LabelPosition="LabelPosition.Top" />
+            </div>
+
+            <div class="mb-3">
+                <DxCheckBox @bind-Checked="@EditingQuery.IsScheduled"
+                Label="Zamanlanmış Çalıştırma"
+                LabelPosition="LabelPosition.Right" />
+            </div>
+
+            @if (EditingQuery.IsScheduled)
+            {
+                <div class="mb-3">
+                    <DxTextBox @bind-Text="@EditingQuery.ScheduleExpression"
+                    Label="CRON İfadesi (ör: 0 0 * * * - her gün gece yarısı)"
+                    CssClass="w-100"
+                    NullText="CRON ifadesi girin..."
+                    LabelPosition="LabelPosition.Top" />
+                </div>
+            }
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+            RenderStyle="ButtonRenderStyle.Secondary"
+            Click="@CloseQueryForm"
+            CssClass="me-2" />
+            <DxButton Text="@(EditingQuery.Id > 0 ? "Güncelle" : "Ekle")"
+            RenderStyle="ButtonRenderStyle.Primary"
+            Click="@SaveQuery" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Silme Onay Popupı -->
+<DxPopup HeaderText="Silme Onayı"
+@bind-Visible="@IsDeleteConfirmVisible"
+ShowFooter="true"
+Width="400px">
+    <HeaderTemplate>
+        <span class="fs-5">Silme Onayı</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <p>@DeleteConfirmMessage</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+            RenderStyle="ButtonRenderStyle.Secondary"
+            Click="@(() => IsDeleteConfirmVisible = false)"
+            CssClass="me-2" />
+            <DxButton Text="Sil"
+            RenderStyle="ButtonRenderStyle.Danger"
+            Click="@ConfirmDelete" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+@* <DxToast @bind-Visible="@IsToastVisible"
+         Text="@ToastMessage"
+         HeaderText="Bilgi"
+         CloseOnOutsideClick="true"
+         ShowCloseButton="true"
+         AutoClose="true"
+         /> *@
+
+@code {
+    private int ActiveTabIndex { get; set; } = 0;
+
+    // Veritabanı bağlantıları
+    private bool IsConnectionFormVisible { get; set; } = false;
+    private List<DatabaseConnection> DatabaseConnections { get; set; } = new List<DatabaseConnection>();
+    private DatabaseConnection EditingConnection { get; set; } = new DatabaseConnection();
+
+    // Kaydedilmiş sorgular
+    private List<SavedQuery> SavedQueries { get; set; } = new List<SavedQuery>();
+    private bool IsQueryFormVisible { get; set; } = false;
+    private SavedQuery EditingQuery { get; set; } = new SavedQuery();
+
+    // Silme onayı
+    private bool IsDeleteConfirmVisible { get; set; } = false;
+    private string DeleteConfirmMessage { get; set; } = string.Empty;
+    private Func<Task> DeleteConfirmAction { get; set; }
+
+    // Toast mesajları
+    private bool IsToastVisible { get; set; } = false;
+    private string ToastMessage { get; set; } = string.Empty;
+    private string ToastTitle { get; set; } = "Bilgi";
+
+    // Veritabanı türleri - basitleştirilmiş liste
+    private List<string> DatabaseTypes { get; set; } = new List<string>
+    {
+        "HANA",
+        "MSSQL", 
+        "MYSQL",
+        "POSTGRESQL",
+        "ORACLE"
+    };
+    
+    // DxComboBox'taki değişikliği gözlemleyen özelliği kaldırdık, bu metodu da kaldırıyoruz
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDatabaseConnections();
+        await LoadSavedQueries();
+        
+        // Her yüklenmede çalışsın, konsola mevcut veritabanı tiplerini yazalım
+        foreach (var dbType in DatabaseTypes)
+        {
+            Console.WriteLine($"Desteklenen DB tipi: {dbType}");
+        }
+    }
+
+    private async Task LoadDatabaseConnections()
+    {
+        try
+        {
+            DatabaseConnections = await QueryService.GetAllDatabaseConnectionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Veritabanı bağlantıları yüklenirken hata oluştu");
+            ShowToast("Hata", $"Veritabanı bağlantıları yüklenirken hata oluştu: {ex.Message}" );
+        }
+    }
+
+    private async Task LoadSavedQueries()
+    {
+        try
+        {
+            SavedQueries = await QueryService.GetAllSavedQueriesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kaydedilmiş sorgular yüklenirken hata oluştu");
+            ShowToast("Hata", $"Kaydedilmiş sorgular yüklenirken hata oluştu: {ex.Message}");
+        }
+    }
+
+    #region Bağlantı Yönetimi
+
+    private void OpenConnectionForm(DatabaseConnection connection)
+    {
+        if (connection == null)
+        {
+            // Yeni bağlantı için
+            EditingConnection = new DatabaseConnection { IsActive = true };
+        }
+        else
+        {
+            // Mevcut bağlantıyı düzenleme için
+            // Önce veritabanı türünü daha sonra manuel olarak ayarlamak için saklayalım
+            string dbType = connection.DatabaseType;
+            
+            // Nesneyi klonla, doğrudan referans verme
+            EditingConnection = new DatabaseConnection
+            {
+                Id = connection.Id,
+                Name = connection.Name,
+                ConnectionString = connection.ConnectionString,
+                Description = connection.Description,
+                IsActive = connection.IsActive,
+                CreatedAt = connection.CreatedAt,
+                UpdatedAt = connection.UpdatedAt
+            };
+            
+            // Veritabanı tipini manuel olarak ayarlayalım
+            EditingConnection.DatabaseType = dbType;
+            
+            // Debug için konsola yazalım
+            Console.WriteLine($"Düzenlenen bağlantı: ID={connection.Id}, Type={dbType}");
+        }
+
+        IsConnectionFormVisible = true;
+    }
+
+    private void CloseConnectionForm()
+    {
+        IsConnectionFormVisible = false;
+    }
+
+    private async Task SaveConnection()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(EditingConnection.Name))
+            {
+                ShowToast("Hata", "Bağlantı adı boş olamaz" );
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(EditingConnection.DatabaseType))
+            {
+                ShowToast("Hata", "Veritabanı türü seçilmelidir" );
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(EditingConnection.ConnectionString))
+            {
+                ShowToast("Hata", "Bağlantı dizesi boş olamaz" );
+                return;
+            }
+
+            bool isNew = EditingConnection.Id == 0;
+
+            // Kaydetmeden önce DatabaseType'ın kesinlikle ayarlandığından emin olalım
+            Console.WriteLine($"Kaydediliyor: ID={EditingConnection.Id}, Name={EditingConnection.Name}, Type={EditingConnection.DatabaseType}");
+            Logger.LogInformation($"Bağlantı kaydediliyor: ID={EditingConnection.Id}, Name={EditingConnection.Name}, Type={EditingConnection.DatabaseType}");
+
+            try {
+                if (isNew)
+                {
+                    await QueryService.AddDatabaseConnectionAsync(EditingConnection);
+                    ShowToast("Başarılı", "Veritabanı bağlantısı başarıyla eklendi");
+                }
+                else
+                {
+                    // DatabaseType değerinin doğru şekilde aktarıldığından emin olalım
+                    var result = await QueryService.UpdateDatabaseConnectionAsync(EditingConnection);
+                    if (result)
+                    {
+                        ShowToast("Başarılı", "Veritabanı bağlantısı başarıyla güncellendi");
+                    }
+                    else
+                    {
+                        ShowToast("Hata", "Veritabanı bağlantısı güncellenemedi");
+                        return;
+                    }
+                }
+            }
+            catch (Exception innerEx)
+            {
+                Logger.LogError(innerEx, "Kayıt işlemi sırasında hata: " + innerEx.Message);
+                ShowToast("Hata", $"Kayıt işlemi sırasında hata: {innerEx.Message}");
+                return;
+            }
+
+            CloseConnectionForm();
+            await LoadDatabaseConnections();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Veritabanı bağlantısı kaydedilirken hata oluştu");
+            ShowToast("Hata", $"Veritabanı bağlantısı kaydedilirken hata oluştu: {ex.Message}" );
+        }
+    }
+
+    private async Task TestConnection(DatabaseConnection connection)
+    {
+        try
+        {
+            var result = await QueryService.TestDatabaseConnectionAsync(connection);
+            
+            if (result.success)
+            {
+                ShowToast("Başarılı", result.message);
+            }
+            else
+            {
+                ShowToast("Bağlantı Hatası", result.message );
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Bağlantı testi sırasında hata oluştu");
+            ShowToast("Hata", $"Bağlantı testi sırasında hata oluştu: {ex.Message}" );
+        }
+    }
+
+    private void ConfirmDeleteConnection(DatabaseConnection connection)
+    {
+        DeleteConfirmMessage = $"{connection.Name} veritabanı bağlantısını silmek istediğinize emin misiniz?";
+        DeleteConfirmAction = async () => await DeleteConnection(connection.Id);
+        IsDeleteConfirmVisible = true;
+    }
+
+    private async Task DeleteConnection(int id)
+    {
+        try
+        {
+            await QueryService.DeleteDatabaseConnectionAsync(id);
+            await LoadDatabaseConnections();
+            ShowToast("Başarılı", "Veritabanı bağlantısı başarıyla silindi");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Veritabanı bağlantısı silinirken hata oluştu");
+            ShowToast("Hata", $"Veritabanı bağlantısı silinirken hata oluştu: {ex.Message}" );
+        }
+        finally
+        {
+            IsDeleteConfirmVisible = false;
+        }
+    }
+
+    #endregion
+
+    #region Sorgu Yönetimi
+
+    private void OpenQueryForm(SavedQuery query)
+    {
+        if (query == null)
+        {
+            EditingQuery = new SavedQuery();
+        }
+        else
+        {
+            // Nesneyi klonla, doğrudan referans verme
+            EditingQuery = new SavedQuery
+            {
+                Id = query.Id,
+                Name = query.Name,
+                QueryText = query.QueryText,
+                TargetTableName = query.TargetTableName,
+                KeyColumn = query.KeyColumn,
+                Description = query.Description,
+                IsScheduled = query.IsScheduled,
+                ScheduleExpression = query.ScheduleExpression,
+                DatabaseConnectionId = query.DatabaseConnectionId,
+                CreatedAt = query.CreatedAt,
+                LastExecuted = query.LastExecuted
+            };
+        }
+
+        IsQueryFormVisible = true;
+    }
+
+    private void CloseQueryForm()
+    {
+        IsQueryFormVisible = false;
+    }
+
+    private async Task SaveQuery()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(EditingQuery.Name))
+            {
+                ShowToast("Hata", "Sorgu adı boş olamaz" );
+                return;
+            }
+
+            if (EditingQuery.DatabaseConnectionId <= 0)
+            {
+                ShowToast("Hata", "Veritabanı bağlantısı seçilmelidir" );
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(EditingQuery.QueryText))
+            {
+                ShowToast("Hata", "SQL sorgusu boş olamaz" );
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(EditingQuery.TargetTableName))
+            {
+                ShowToast("Hata", "Hedef tablo adı boş olamaz" );
+                return;
+            }
+
+            bool isNew = EditingQuery.Id == 0;
+
+            if (isNew)
+            {
+                await QueryService.AddSavedQueryAsync(EditingQuery);
+                ShowToast("Başarılı", "Sorgu başarıyla eklendi");
+            }
+            else
+            {
+                await QueryService.UpdateSavedQueryAsync(EditingQuery);
+                ShowToast("Başarılı", "Sorgu başarıyla güncellendi");
+            }
+
+            CloseQueryForm();
+            await LoadSavedQueries();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu kaydedilirken hata oluştu");
+            ShowToast("Hata", $"Sorgu kaydedilirken hata oluştu: {ex.Message}" );
+        }
+    }
+
+    private async Task ExecuteQuery(SavedQuery query)
+    {
+        try
+        {
+            var result = await QueryService.ExecuteSavedQueryAsync(query.Id);
+            
+            if (result.success)
+            {
+                ShowToast("Başarılı", result.message);
+                await LoadSavedQueries(); // Son çalıştırma tarihini güncellemek için yeniden yükle
+            }
+            else
+            {
+                ShowToast("Hata", result.message );
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu çalıştırılırken hata oluştu");
+            ShowToast("Hata", $"Sorgu çalıştırılırken hata oluştu: {ex.Message}" );
+        }
+    }
+
+    private void ConfirmDeleteQuery(SavedQuery query)
+    {
+        DeleteConfirmMessage = $"{query.Name} sorgusunu silmek istediğinize emin misiniz?";
+        DeleteConfirmAction = async () => await DeleteQuery(query.Id);
+        IsDeleteConfirmVisible = true;
+    }
+
+    private async Task DeleteQuery(int id)
+    {
+        try
+        {
+            await QueryService.DeleteSavedQueryAsync(id);
+            await LoadSavedQueries();
+            ShowToast("Başarılı", "Sorgu başarıyla silindi");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu silinirken hata oluştu");
+            ShowToast("Hata", $"Sorgu silinirken hata oluştu: {ex.Message}" );
+        }
+        finally
+        {
+            IsDeleteConfirmVisible = false;
+        }
+    }
+
+    #endregion
+
+    #region Yardımcı Metodlar
+
+    private string GetDatabaseTypeBadgeClass(string dbType)
+    {
+        return dbType.ToUpper() switch
+        {
+            "HANA" => "badge-primary",
+            "MSSQL" => "badge-info",
+            "MYSQL" => "badge-success",
+            "POSTGRESQL" => "badge-warning",
+            "ORACLE" => "badge-danger",
+            _ => "badge-secondary"
+        };
+    }
+
+    private string MaskConnectionString(string connectionString)
+    {
+        if (string.IsNullOrEmpty(connectionString))
+            return string.Empty;
+
+        // Bağlantı dizesindeki password bölümünü maskele
+        var maskedString = System.Text.RegularExpressions.Regex.Replace(
+            connectionString,
+            @"(Password|PWD|PASSWORD)=([^;]*)",
+            match => $"{match.Groups[1].Value}=********"
+        );
+
+        return maskedString;
+    }
+
+    private void ShowToast(string title, string message)
+    {
+        ToastTitle = title;
+        ToastMessage = message;
+        IsToastVisible = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (DeleteConfirmAction != null)
+        {
+            await DeleteConfirmAction.Invoke();
+        }
+        IsDeleteConfirmVisible = false;
+    }
+
+    #endregion
+    }

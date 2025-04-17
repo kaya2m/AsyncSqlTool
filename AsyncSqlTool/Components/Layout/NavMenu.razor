@@ -12,7 +12,7 @@
         <Items>
             <DxGridLayoutItem Area="header" CssClass="sidebar-header">
                 <Template>
-                    <img class="logo" src="images/logo.svg" alt="DevExpress logo" />
+                    <img class="logo" src="images/logo.svg" alt="AsyncSQL Tool" />
                 </Template>
             </DxGridLayoutItem>
             <DxGridLayoutItem Area="menu-button" CssClass="sidebar-header menu-button-container">
@@ -26,8 +26,12 @@
                     </div>
                     <DxMenu Orientation="@Orientation.Vertical" CssClass="menu">
                         <Items>
-                            <DxMenuItem NavigateUrl="/" Text="Home" CssClass="menu-item" IconCssClass="icon home-icon"></DxMenuItem>
-                            <DxMenuItem NavigateUrl="/sapquery" Text="SQL Aktarım" CssClass="menu-item" IconCssClass="icon counter-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/" Text="Ana Sayfa" CssClass="menu-item" IconCssClass="icon home-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/query" Text="SQL Sorgu" CssClass="menu-item" IconCssClass="icon terminal-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/sapquery" Text="SAP B1 Sorgu (Eski)" CssClass="menu-item" IconCssClass="icon code-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/database-manager" Text="Veritabanı Yönetimi" CssClass="menu-item" IconCssClass="icon server-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/logs" Text="Çalıştırma Logları" CssClass="menu-item" IconCssClass="icon history-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/settings" Text="Ayarlar" CssClass="menu-item" IconCssClass="icon cog-icon"></DxMenuItem>
                         </Items>
                     </DxMenu>
                 </Template>

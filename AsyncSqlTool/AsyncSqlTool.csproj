@@ -1,13 +1,23 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
+    <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="DevExpress.Blazor" Version="24.2.*" />
 	  <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.1" />
+	  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
+	  <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.4" />
+	  <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.4">
+	    <PrivateAssets>all</PrivateAssets>
+	    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	  </PackageReference>
+	  <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.4" />
+	  <PackageReference Include="MySql.Data" Version="9.2.0" />
+	  <PackageReference Include="Npgsql" Version="9.0.3" />
+	  <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.8.0" />
   </ItemGroup>
 	<ItemGroup>
 		<Reference Include="Sap.Data.Hana.Core.v2.1">
