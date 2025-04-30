@@ -308,16 +308,15 @@ namespace AsyncSqlTool.Services
                 }
             }
         }
+        // QueryService.cs içindeki ExecuteQueryAndSaveToSqlAsync metodunun imzasını genişletmemiz gerekiyor:
 
-        /// <summary>
-        /// Sorguyu çalıştırır ve sonuçları SQL Server'a kaydeder
-        /// </summary>
         public async Task<(bool success, string message, int recordCount)> ExecuteQueryAndSaveToSqlAsync(
             int databaseConnectionId,
             string queryText,
             string targetTableName,
             string keyColumn = null,
-            int? savedQueryId = null)
+            int? savedQueryId = null,
+            List<QueryColumnMapping> columnMappings = null)  
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -354,8 +353,35 @@ namespace AsyncSqlTool.Services
                     return (true, log.Message, 0);
                 }
 
-                // SQL Server'a kaydet
-                await SaveToSqlServerAsync(sourceData, targetTableName, keyColumn, savedQueryId);
+                // Parametre olarak gelen kolon eşleştirmelerini kullan
+                List<QueryColumnMapping> mappingsToUse = columnMappings ?? new List<QueryColumnMapping>();
+
+                if (mappingsToUse.Count == 0 && savedQueryId.HasValue)
+                {
+                    mappingsToUse = await _dbContext.QueryColumnMappings
+                        .Where(m => m.SavedQueryId == savedQueryId.Value)
+                        .ToListAsync();
+                }
+
+                // Hala kolon eşleştirmeleri bulunamadıysa, aynı sorgu ve tablo adına sahip
+                // kaydedilmiş sorgulardan eşleştirmeleri getirmeyi dene
+                if (mappingsToUse.Count == 0)
+                {
+                    var savedQuery = await _dbContext.SavedQueries
+                        .FirstOrDefaultAsync(q => q.TargetTableName == targetTableName &&
+                                            q.KeyColumn == keyColumn &&
+                                            q.QueryText == queryText);
+
+                    if (savedQuery != null)
+                    {
+                        mappingsToUse = await _dbContext.QueryColumnMappings
+                            .Where(m => m.SavedQueryId == savedQuery.Id)
+                            .ToListAsync();
+                    }
+                }
+
+                // SQL Server'a kaydet (kolon eşleştirmelerini de parametre olarak geçir)
+                await SaveToSqlServerAsync(sourceData, targetTableName, keyColumn, savedQueryId, mappingsToUse);
 
                 log.Message = $"{sourceData.Count} kayıt başarıyla SQL Server'a aktarıldı.";
                 log.IsSuccess = true;
@@ -408,11 +434,10 @@ namespace AsyncSqlTool.Services
         /// <summary>
         /// Dictionary listesi verisini SQL Server'a kaydeder
         /// </summary>
-        private async Task SaveToSqlServerAsync(List<Dictionary<string, object>> data, string tableName, string keyColumn, int? savedQueryId = null)
+        private async Task SaveToSqlServerAsync(List<Dictionary<string, object>> data, string tableName, string keyColumn, int? savedQueryId = null, List<QueryColumnMapping> columnMappings = null)
         {
             if (data.Count == 0) return;
 
-            // SQL injection kontrolü
             if (!IsValidSqlIdentifier(tableName))
             {
                 throw new ArgumentException("Geçersiz tablo adı");
@@ -427,43 +452,48 @@ namespace AsyncSqlTool.Services
             {
                 await connection.OpenAsync();
 
-                // İlk kaydı kullanarak tablo yapısını analiz et
                 var firstRecord = data[0];
-                var columnDefinitions = new List<(string Name, Type Type, bool IsKey)>();
+
+                // Bu yeni yapı SQL tipini de saklayacak
+                var columnDefinitions = new List<(string Name, Type Type, bool IsKey, string SqlType)>();
 
                 foreach (var key in firstRecord.Keys)
                 {
-                    if (!IsValidSqlIdentifier(key))
-                    {
-                        _logger.LogWarning($"Geçersiz kolon adı atlanıyor: {key}");
-                        continue;
-                    }
-
                     var value = firstRecord[key];
                     var isKey = !string.IsNullOrEmpty(keyColumn) && key.Equals(keyColumn, StringComparison.OrdinalIgnoreCase);
 
-                    // SAP HANA türleri için özel işlem
-                    Type type = typeof(string); // Varsayılan tür
+                    var columnMapping = columnMappings?.FirstOrDefault(m => m.SourceColumnName.Equals(key, StringComparison.OrdinalIgnoreCase));
 
-                    if (value != null)
+                    if (columnMapping != null)
                     {
-                        var typeName = value.GetType().FullName;
+                        string sqlType = GetSqlTypeFromMapping(columnMapping);
+                        Type clrType = GetClrTypeFromSqlType(columnMapping.DataType, columnMapping.Length, columnMapping.Precision);
 
-                        // HanaDecimal gibi özel SAP HANA veri türlerini dönüştür
-                        if (typeName == "Sap.Data.Hana.HanaDecimal")
-                        {
-                            type = typeof(decimal);
-                        }
-                        else
-                        {
-                            type = value.GetType();
-                        }
+                        columnDefinitions.Add((key, clrType, columnMapping.IsPrimaryKey, sqlType));
                     }
+                    else
+                    {
+                        Type clrType = typeof(string);
 
-                    columnDefinitions.Add((key, type, isKey));
+                        if (value != null)
+                        {
+                            var typeName = value.GetType().FullName;
+                            if (typeName == "Sap.Data.Hana.HanaDecimal")
+                            {
+                                clrType = typeof(decimal);
+                            }
+                            else
+                            {
+                                clrType = value.GetType();
+                            }
+                        }
+
+                        string sqlType = GetSqlTypeFromClrType(clrType);
+
+                        columnDefinitions.Add((key, clrType, isKey, sqlType));
+                    }
                 }
 
-                // Tablo mevcut değilse oluştur
                 if (!await TableExistsAsync(connection, tableName))
                 {
                     await CreateTableAsync(connection, tableName, columnDefinitions, savedQueryId);
@@ -471,18 +501,15 @@ namespace AsyncSqlTool.Services
                 }
                 else
                 {
-                    // Mevcut tablo yapısını kontrol et ve gerekirse güncelle
-                    await UpdateTableColumnsIfNeededAsync(connection, tableName, columnDefinitions);
+                    await UpdateTableColumnsIfNeededAsync(connection, tableName, columnDefinitions, columnMappings);
                 }
 
-                // Veriyi kaydet
                 using (var transaction = connection.BeginTransaction())
                 {
                     try
                     {
                         if (!string.IsNullOrEmpty(keyColumn))
                         {
-                            // UPSERT: Her kaydı güncelle veya ekle
                             foreach (var record in data)
                             {
                                 var validColumns = record.Keys.Where(k => IsValidSqlIdentifier(k)).ToList();
@@ -494,19 +521,18 @@ namespace AsyncSqlTool.Services
 
                                 if (string.IsNullOrEmpty(updateSet))
                                 {
-                                    // Sadece anahtar kolon varsa ve başka kolon yoksa, bu kaydı atla
                                     continue;
                                 }
 
                                 var mergeSql = $@"
-                            MERGE INTO [{tableName}] AS target
-                            USING (SELECT @{keyColumn} AS [{keyColumn}]) AS source
-                            ON target.[{keyColumn}] = source.[{keyColumn}]
-                            WHEN MATCHED THEN
-                                UPDATE SET {updateSet}
-                            WHEN NOT MATCHED THEN
-                                INSERT ({columns})
-                                VALUES ({parameters});";
+                    MERGE INTO [{tableName}] AS target
+                    USING (SELECT @{keyColumn} AS [{keyColumn}]) AS source
+                    ON target.[{keyColumn}] = source.[{keyColumn}]
+                    WHEN MATCHED THEN
+                        UPDATE SET {updateSet}
+                    WHEN NOT MATCHED THEN
+                        INSERT ({columns})
+                        VALUES ({parameters});";
 
                                 using (var command = new SqlCommand(mergeSql, connection, transaction))
                                 {
@@ -514,15 +540,12 @@ namespace AsyncSqlTool.Services
                                     {
                                         var paramValue = record[key];
 
-                                        // HanaDecimal ve diğer özel türleri dönüştür
                                         if (paramValue != null)
                                         {
                                             var paramTypeName = paramValue.GetType().FullName;
 
                                             if (paramTypeName == "Sap.Data.Hana.HanaDecimal")
                                             {
-                                                // HanaDecimal'i decimal'e dönüştür
-                                                // Eğer doğrudan cast yapılamıyorsa ToString() kullanıp parse etmek gerekebilir
                                                 try
                                                 {
                                                     decimal decimalValue = Convert.ToDecimal(paramValue.ToString());
@@ -551,20 +574,17 @@ namespace AsyncSqlTool.Services
                         }
                         else
                         {
-                            // Anahtar kolon yoksa - önce tabloyu temizle, sonra tüm verileri ekle
                             using (var command = new SqlCommand($"TRUNCATE TABLE [{tableName}]", connection, transaction))
                             {
                                 await command.ExecuteNonQueryAsync();
                             }
 
-                            // DataTable oluştur
                             var dataTable = new DataTable();
                             foreach (var column in columnDefinitions)
                             {
                                 dataTable.Columns.Add(column.Name, column.Type);
                             }
 
-                            // DataTable'a verileri ekle
                             foreach (var record in data)
                             {
                                 var row = dataTable.NewRow();
@@ -606,7 +626,6 @@ namespace AsyncSqlTool.Services
                                 dataTable.Rows.Add(row);
                             }
 
-                            // SqlBulkCopy kullanarak toplu veri ekle
                             using (var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction))
                             {
                                 bulkCopy.DestinationTableName = tableName;
@@ -661,7 +680,8 @@ namespace AsyncSqlTool.Services
         /// <summary>
         /// SQL Server'da tablo oluşturur
         /// </summary>
-        private async Task CreateTableAsync(SqlConnection connection, string tableName, List<(string Name, Type Type, bool IsKey)> columnDefinitions, int? savedQueryId = null)
+        private async Task CreateTableAsync(SqlConnection connection, string tableName,
+     List<(string Name, Type Type, bool IsKey, string SqlType)> columnDefinitions, int? savedQueryId = null)
         {
             var createTableSql = new StringBuilder();
             createTableSql.AppendLine($"CREATE TABLE [{tableName}] (");
@@ -669,9 +689,9 @@ namespace AsyncSqlTool.Services
             var columnDefinitionStrings = new List<string>();
             foreach (var column in columnDefinitions)
             {
-                var sqlType = GetSqlTypeFromClrType(column.Type);
+                // SQL tipini doğrudan kullan
                 var primaryKeyClause = column.IsKey ? "PRIMARY KEY" : "";
-                columnDefinitionStrings.Add($"[{column.Name}] {sqlType} {primaryKeyClause}");
+                columnDefinitionStrings.Add($"[{column.Name}] {column.SqlType} {primaryKeyClause}");
             }
 
             createTableSql.AppendLine(string.Join(",\n", columnDefinitionStrings));
@@ -682,9 +702,10 @@ namespace AsyncSqlTool.Services
                 await command.ExecuteNonQueryAsync();
             }
 
-            // Kolon bilgilerini kaydet
+
             if (tableName.StartsWith("tmp_") || tableName.StartsWith("temp_") || !savedQueryId.HasValue)
-                return; // Geçici tablolar veya savedQueryId yoksa kolon bilgilerini kaydetme
+                return;
+
 
             // Kolon eşleştirme kayıtlarını oluştur
             var columnMappings = columnDefinitions.Select(col => new QueryColumnMapping
@@ -702,68 +723,497 @@ namespace AsyncSqlTool.Services
         /// <summary>
         /// Mevcut tablo kolonlarını kontrol eder ve gerekirse günceller
         /// </summary>
-        private async Task UpdateTableColumnsIfNeededAsync(SqlConnection connection, string tableName, List<(string Name, Type Type, bool IsKey)> columnDefinitions)
+        private async Task UpdateTableColumnsIfNeededAsync(SqlConnection connection, string tableName,
+           List<(string Name, Type Type, bool IsKey, string SqlType)> columnDefinitions,
+           List<QueryColumnMapping> columnMappings = null)
         {
-            // Mevcut kolonları al
+            // Mevcut kolonları al (bu kısım değişmedi)
+            var existingColumns = new Dictionary<string, (string DataType, int? Length, int? Precision, bool IsPrimaryKey)>();
+
             using (var command = new SqlCommand(
-                $"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @TableName",
+                @"SELECT 
+            c.COLUMN_NAME,
+            c.DATA_TYPE,
+            c.CHARACTER_MAXIMUM_LENGTH,
+            c.NUMERIC_PRECISION,
+            c.NUMERIC_SCALE,
+            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
+        FROM 
+            INFORMATION_SCHEMA.COLUMNS c
+        LEFT JOIN (
+            SELECT ku.TABLE_CATALOG, ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
+                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+        ) pk 
+            ON c.TABLE_CATALOG = pk.TABLE_CATALOG 
+            AND c.TABLE_SCHEMA = pk.TABLE_SCHEMA 
+            AND c.TABLE_NAME = pk.TABLE_NAME 
+            AND c.COLUMN_NAME = pk.COLUMN_NAME
+        WHERE c.TABLE_NAME = @TableName",
                 connection))
             {
                 command.Parameters.AddWithValue("@TableName", tableName);
-
-                var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
                     {
-                        existingColumns.Add(reader.GetString(0));
+                        var columnName = reader.GetString(0);
+                        var dataType = reader.GetString(1);
+
+                        int? length = null;
+                        if (!reader.IsDBNull(2))
+                            length = reader.GetInt32(2);
+
+                        int? precision = null;
+                        if (!reader.IsDBNull(3))
+                            precision = reader.GetInt32(3);
+
+                        bool isPrimaryKey = Convert.ToBoolean(reader.GetValue(5));
+
+                        existingColumns.Add(columnName, (dataType, length, precision, isPrimaryKey));
                     }
                 }
+            }
 
-                // Eksik kolonları ekle
-                foreach (var column in columnDefinitions)
+            foreach (var column in columnDefinitions)
+            {
+                // Kolon tipini doğrudan kullan
+                string sqlType = column.SqlType;
+
+                // Kolon yoksa ekle
+                if (!existingColumns.ContainsKey(column.Name))
                 {
-                    if (!existingColumns.Contains(column.Name))
-                    {
-                        var sqlType = GetSqlTypeFromClrType(column.Type);
-                        var alterSql = $"ALTER TABLE [{tableName}] ADD [{column.Name}] {sqlType}";
+                    var alterSql = $"ALTER TABLE [{tableName}] ADD [{column.Name}] {sqlType}";
 
-                        using (var alterCommand = new SqlCommand(alterSql, connection))
+                    using (var alterCommand = new SqlCommand(alterSql, connection))
+                    {
+                        await alterCommand.ExecuteNonQueryAsync();
+                        _logger.LogInformation($"Kolon eklendi: {column.Name} ({sqlType})");
+                    }
+                }
+                else
+                {
+                    // Kolon tipini güncelle (gerekiyorsa)
+                    var existingColumn = existingColumns[column.Name];
+                    string existingSqlType = $"{existingColumn.DataType}";
+
+                    if (existingColumn.Length.HasValue)
+                        existingSqlType += $"({existingColumn.Length.Value})";
+                    else if (existingColumn.Precision.HasValue)
+                        existingSqlType += $"({existingColumn.Precision.Value})";
+
+                    // SQL tipi farklıysa güncelle
+                    if (!IsSameColumnType(existingSqlType, sqlType))
+                    {
+                        try
                         {
-                            await alterCommand.ExecuteNonQueryAsync();
-                            _logger.LogInformation($"Kolon eklendi: {column.Name} ({sqlType})");
+                            // Veri tipi değiştirilirken verileri kaybetmemek için ALTER COLUMN kullan
+                            var alterSql = $"ALTER TABLE [{tableName}] ALTER COLUMN [{column.Name}] {sqlType}";
+
+                            using (var alterCommand = new SqlCommand(alterSql, connection))
+                            {
+                                await alterCommand.ExecuteNonQueryAsync();
+                                _logger.LogInformation($"Kolon tipi güncellendi: {column.Name} ({existingSqlType} -> {sqlType})");
+                            }
                         }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning($"Kolon tipi güncellenirken hata: {ex.Message}. Mevcut tip korunuyor: {column.Name}");
+                        }
+                    }
+
+                    // Eksik PK ekle veya kaldır
+                    bool primaryKeyNeedsUpdate = existingColumn.IsPrimaryKey != column.IsKey;
+                    if (primaryKeyNeedsUpdate)
+                    {
+                        await UpdatePrimaryKeyConstraintAsync(connection, tableName, column.Name, column.IsKey);
                     }
                 }
             }
         }
 
         /// <summary>
-        /// .NET veri tipini SQL Server veri tipine dönüştürür
+        /// Kolon eşleştirmesine göre SQL veri tipini belirler - Tüm veri tipleri için kullanıcı ayarlarını dikkate alır
         /// </summary>
-        private string GetSqlTypeFromClrType(Type type)
+        private string GetSqlTypeFromMapping(QueryColumnMapping mapping)
         {
-            if (type == typeof(int) || type == typeof(Int32)) return "INT";
-            if (type == typeof(long) || type == typeof(Int64)) return "BIGINT";
-            if (type == typeof(short) || type == typeof(Int16)) return "SMALLINT";
-            if (type == typeof(byte)) return "TINYINT";
-            if (type == typeof(decimal)) return "DECIMAL(18, 6)";
-            if (type == typeof(double)) return "FLOAT";
-            if (type == typeof(float)) return "REAL";
-            if (type == typeof(bool)) return "BIT";
-            if (type == typeof(DateTime)) return "DATETIME";
-            if (type == typeof(DateTimeOffset)) return "DATETIMEOFFSET";
-            if (type == typeof(TimeSpan)) return "TIME";
-            if (type == typeof(Guid)) return "UNIQUEIDENTIFIER";
-            if (type == typeof(byte[])) return "VARBINARY(MAX)";
+            if (mapping == null || string.IsNullOrEmpty(mapping.DataType))
+                return "NVARCHAR(255)"; // Varsayılan tip
 
-            // String değerler için daha akıllı tip belirleme
-            if (type == typeof(string))
+            string sqlType = mapping.DataType.ToUpper();
+
+            // Tırnak içindeki parantezleri temizle (örn: "VARCHAR(100)" -> "VARCHAR")
+            string baseType = sqlType;
+            if (baseType.Contains("("))
+                baseType = baseType.Substring(0, baseType.IndexOf("("));
+
+            // Veri tipine göre özel işlem
+            switch (baseType)
             {
-                return "NVARCHAR(255)";
+                // Uzunluk gerektiren tipler
+                case "CHAR":
+                case "NCHAR":
+                case "VARCHAR":
+                case "NVARCHAR":
+                    int length = mapping.Length > 0 ? mapping.Length : 255;
+                    if (length > 8000 || length == -1) // -1 MAX demek
+                        return $"{baseType}(MAX)";
+                    else
+                        return $"{baseType}({length})";
+
+                // Precision ve Scale gerektiren tipler
+                case "DECIMAL":
+                case "NUMERIC":
+                    int precision = mapping.Precision > 0 ? mapping.Precision : 18;
+                    int scale = mapping.Scale > 0 ? mapping.Scale : 2;
+                    return $"{baseType}({precision},{scale})";
+
+                // Precision gerektiren tipler
+                case "FLOAT":
+                    int floatPrecision = mapping.Precision > 0 ? mapping.Precision : 53;
+                    return $"{baseType}({floatPrecision})";
+
+                // Uzunluk gerektiren binary tipler
+                case "BINARY":
+                case "VARBINARY":
+                    int binLength = mapping.Length > 0 ? mapping.Length : 50;
+                    if (binLength > 8000 || binLength == -1)
+                        return $"{baseType}(MAX)";
+                    else
+                        return $"{baseType}({binLength})";
+
+                // Datetime precision gerektiren tipler
+                case "DATETIME2":
+                case "DATETIMEOFFSET":
+                case "TIME":
+                    int dtPrecision = mapping.Precision >= 0 && mapping.Precision <= 7 ? mapping.Precision : 7;
+                    return $"{baseType}({dtPrecision})";
+
+                // Sabit uzunluk tipler - parametre gerektirmez
+                case "BIT":
+                case "TINYINT":
+                case "SMALLINT":
+                case "INT":
+                case "BIGINT":
+                case "SMALLMONEY":
+                case "MONEY":
+                case "REAL":
+                case "DATE":
+                case "DATETIME":
+                case "SMALLDATETIME":
+                case "TIMESTAMP":
+                case "UNIQUEIDENTIFIER":
+                case "IMAGE":
+                case "TEXT":
+                case "NTEXT":
+                case "XML":
+                default:
+                    return baseType;
+            }
+        }
+
+        /// <summary>
+        /// İki SQL veri tipinin aynı olup olmadığını kontrol eder 
+        /// </summary>
+        private bool IsSameColumnType(string type1, string type2)
+        {
+            // Basit karşılaştırma için boşlukları temizle ve büyük harfe çevir
+            string normalizedType1 = type1.Replace(" ", "").ToUpper();
+            string normalizedType2 = type2.Replace(" ", "").ToUpper();
+
+            // Temel tipleri karşılaştır (parantez içindeki uzunluk/hassasiyet değerlerini yok say)
+            string baseType1 = normalizedType1;
+            string baseType2 = normalizedType2;
+
+            if (normalizedType1.Contains("("))
+                baseType1 = normalizedType1.Substring(0, normalizedType1.IndexOf("("));
+
+            if (normalizedType2.Contains("("))
+                baseType2 = normalizedType2.Substring(0, normalizedType2.IndexOf("("));
+
+            // Temelde aynı tip değilse false döndür
+            if (baseType1 != baseType2)
+                return false;
+
+            // VARCHAR, NVARCHAR gibi string tipler için uzunluğu kontrol et
+            if (baseType1.Contains("VARCHAR") || baseType1.Contains("CHAR"))
+            {
+                // MAX değeri ile sayısal değer arasında fark varsa false döndür
+                bool type1HasMax = normalizedType1.Contains("(MAX)");
+                bool type2HasMax = normalizedType2.Contains("(MAX)");
+
+                if (type1HasMax != type2HasMax)
+                    return false;
+
+                // Eğer MAX değil ise ve uzunlukları farklı ise false döndür
+                if (!type1HasMax && !type2HasMax)
+                {
+                    try
+                    {
+                        int length1 = ExtractNumberFromType(normalizedType1);
+                        int length2 = ExtractNumberFromType(normalizedType2);
+
+                        // Eğer uzunluk düşürülüyorsa false döndür (veri kaybı olabilir)
+                        if (length1 > length2)
+                            return false;
+                    }
+                    catch
+                    {
+                        // Uzunluk çıkarılamazsa farklı kabul et
+                        return false;
+                    }
+                }
             }
 
-            return "NVARCHAR(255)";  // Varsayılan olarak string
+            // DECIMAL, NUMERIC gibi sayısal tipler için hassasiyet/ölçek kontrolü
+            if (baseType1 == "DECIMAL" || baseType1 == "NUMERIC")
+            {
+                try
+                {
+                    string precision1 = ExtractPrecisionFromType(normalizedType1);
+                    string precision2 = ExtractPrecisionFromType(normalizedType2);
+
+                    if (precision1 != precision2)
+                        return false;
+                }
+                catch
+                {
+                    // Hassasiyet çıkarılamazsa farklı kabul et
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Parantez içinden sayısal değeri çıkarır, örn: NVARCHAR(100) -> 100
+        /// </summary>
+        private int ExtractNumberFromType(string type)
+        {
+            int start = type.IndexOf("(") + 1;
+            int end = type.IndexOf(")");
+            if (start > 0 && end > start)
+            {
+                string numberStr = type.Substring(start, end - start);
+                if (int.TryParse(numberStr, out int number))
+                    return number;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Parantez içinden hassasiyet/ölçek değerini çıkarır, örn: DECIMAL(18,2) -> "18,2"
+        /// </summary>
+        private string ExtractPrecisionFromType(string type)
+        {
+            int start = type.IndexOf("(") + 1;
+            int end = type.IndexOf(")");
+            if (start > 0 && end > start)
+            {
+                return type.Substring(start, end - start);
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// Tablo için primary key kısıtlamasını günceller
+        /// </summary>
+        private async Task UpdatePrimaryKeyConstraintAsync(SqlConnection connection, string tableName, string columnName, bool addAsPrimaryKey)
+        {
+            try
+            {
+                // Mevcut PK kısıtlaması varsa bul ve kaldır
+                string constraintName = null;
+                using (var command = new SqlCommand(
+                    @"SELECT kcu.CONSTRAINT_NAME
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+            WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND tc.TABLE_NAME = @TableName",
+                    connection))
+                {
+                    command.Parameters.AddWithValue("@TableName", tableName);
+                    var result = await command.ExecuteScalarAsync();
+                    if (result != null)
+                    {
+                        constraintName = result.ToString();
+
+                        // Mevcut PK kısıtlamasını kaldır
+                        using (var dropCommand = new SqlCommand($"ALTER TABLE [{tableName}] DROP CONSTRAINT [{constraintName}]", connection))
+                        {
+                            await dropCommand.ExecuteNonQueryAsync();
+                            _logger.LogInformation($"Mevcut primary key kısıtlaması kaldırıldı: {constraintName}");
+                        }
+                    }
+                }
+
+                // Yeni primary key eklenecekse
+                if (addAsPrimaryKey)
+                {
+                    // Yeni PK kısıtlaması oluştur
+                    string newConstraintName = $"PK_{tableName}_{columnName}";
+                    using (var addCommand = new SqlCommand($"ALTER TABLE [{tableName}] ADD CONSTRAINT [{newConstraintName}] PRIMARY KEY ([{columnName}])", connection))
+                    {
+                        await addCommand.ExecuteNonQueryAsync();
+                        _logger.LogInformation($"Yeni primary key kısıtlaması eklendi: {newConstraintName} ({columnName})");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Primary key güncellenirken hata: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// SQL tipinden CLR tipini belirler (yazılamayan yeni helper metod)
+        /// </summary>
+        private Type GetClrTypeFromSqlType(string sqlType, int length = 0, int precision = 0)
+        {
+            // SQL tipi büyük harfe çevir ve parantez içindeki değerleri temizle
+            string normalizedType = sqlType.ToUpper();
+            if (normalizedType.Contains("("))
+                normalizedType = normalizedType.Substring(0, normalizedType.IndexOf("("));
+
+            switch (normalizedType)
+            {
+                case "INT":
+                case "INTEGER":
+                    return typeof(int);
+                case "BIGINT":
+                    return typeof(long);
+                case "SMALLINT":
+                    return typeof(short);
+                case "TINYINT":
+                    return typeof(byte);
+                case "BIT":
+                    return typeof(bool);
+                case "DECIMAL":
+                case "NUMERIC":
+                case "MONEY":
+                case "SMALLMONEY":
+                    return typeof(decimal);
+                case "FLOAT":
+                    return typeof(double);
+                case "REAL":
+                    return typeof(float);
+                case "DATE":
+                case "DATETIME":
+                case "DATETIME2":
+                case "SMALLDATETIME":
+                    return typeof(DateTime);
+                case "DATETIMEOFFSET":
+                    return typeof(DateTimeOffset);
+                case "TIME":
+                    return typeof(TimeSpan);
+                case "UNIQUEIDENTIFIER":
+                    return typeof(Guid);
+                case "VARBINARY":
+                case "BINARY":
+                case "IMAGE":
+                    return typeof(byte[]);
+
+                default:
+                    // Varsayılan olarak string tipini döndür
+                    return typeof(string);
+            }
+        }
+
+        /// <summary>
+        /// CLR (C#) veri tipini SQL Server veri tipine dönüştürür
+        /// </summary>
+        private string GetSqlTypeFromClrType(Type type, int? length = null, int? precision = null, int? scale = null)
+        {
+            if (type == typeof(int) || type == typeof(Int32))
+                return "INT";
+
+            if (type == typeof(long) || type == typeof(Int64))
+                return "BIGINT";
+
+            if (type == typeof(short) || type == typeof(Int16))
+                return "SMALLINT";
+
+            if (type == typeof(byte))
+                return "TINYINT";
+
+            if (type == typeof(bool))
+                return "BIT";
+
+            if (type == typeof(decimal))
+            {
+                int p = precision.HasValue && precision.Value > 0 ? precision.Value : 18;
+                int s = scale.HasValue && scale.Value >= 0 ? scale.Value : 2;
+                return $"DECIMAL({p},{s})";
+            }
+
+            if (type == typeof(double))
+            {
+                int p = precision.HasValue && precision.Value > 0 ? precision.Value : 53;
+                return $"FLOAT({p})";
+            }
+
+            if (type == typeof(float))
+                return "REAL";
+
+            if (type == typeof(DateTime))
+            {
+                if (precision.HasValue)
+                    return $"DATETIME2({(precision.Value >= 0 && precision.Value <= 7 ? precision.Value : 7)})";
+                else
+                    return "DATETIME";
+            }
+
+            if (type == typeof(DateTimeOffset))
+            {
+                if (precision.HasValue)
+                    return $"DATETIMEOFFSET({(precision.Value >= 0 && precision.Value <= 7 ? precision.Value : 7)})";
+                else
+                    return "DATETIMEOFFSET";
+            }
+
+            if (type == typeof(TimeSpan))
+            {
+                if (precision.HasValue)
+                    return $"TIME({(precision.Value >= 0 && precision.Value <= 7 ? precision.Value : 7)})";
+                else
+                    return "TIME";
+            }
+
+            if (type == typeof(Guid))
+                return "UNIQUEIDENTIFIER";
+
+            if (type == typeof(byte[]))
+            {
+                if (length.HasValue)
+                {
+                    if (length.Value > 8000 || length.Value == -1)
+                        return "VARBINARY(MAX)";
+                    else
+                        return $"VARBINARY({length.Value})";
+                }
+                else
+                    return "VARBINARY(MAX)";
+            }
+
+            // String değerler için
+            if (type == typeof(string))
+            {
+                if (length.HasValue)
+                {
+                    if (length.Value > 8000 || length.Value == -1)
+                        return "NVARCHAR(MAX)";
+                    else
+                        return $"NVARCHAR({length.Value})";
+                }
+                else
+                    return "NVARCHAR(255)";
+            }
+
+            // Bilinmeyen tipler için varsayılan
+            return "NVARCHAR(255)";
         }
 
         #region SQL Tablosu Yönetimi
