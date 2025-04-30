@@ -1,4 +1,30 @@
-﻿<div id="sidebar">
+﻿<style>
+    .sidebar-header {
+        padding: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .logo {
+        max-width: 100%;
+        height: auto;
+        max-height: 50px;
+        transition: transform 0.3s ease;
+    }
+
+        .logo:hover {
+            transform: scale(1.05);
+        }
+
+
+</style>
+<div id="sidebar">
     <DxGridLayout CssClass="page-layout" RowSpacing="1.5rem">
         <Rows>
             <DxGridLayoutRow Areas="header menu-button" Height="auto"></DxGridLayoutRow>
@@ -12,7 +38,9 @@
         <Items>
             <DxGridLayoutItem Area="header" CssClass="sidebar-header">
                 <Template>
-                    <img class="logo" src="images/logo.svg" alt="AsyncSQL Tool" />
+                    <div class="logo-container">
+                        <img class="logo" src="images/logo.svg" alt="ToolBase - SQL Sorgu Aracı" />
+                    </div>
                 </Template>
             </DxGridLayoutItem>
             <DxGridLayoutItem Area="menu-button" CssClass="sidebar-header menu-button-container">
@@ -28,7 +56,6 @@
                         <Items>
                             <DxMenuItem NavigateUrl="/" Text="Ana Sayfa" CssClass="menu-item" IconCssClass="icon home-icon"></DxMenuItem>
                             <DxMenuItem NavigateUrl="/query" Text="SQL Sorgu" CssClass="menu-item" IconCssClass="icon terminal-icon"></DxMenuItem>
-                            <DxMenuItem NavigateUrl="/sapquery" Text="SAP B1 Sorgu (Eski)" CssClass="menu-item" IconCssClass="icon code-icon"></DxMenuItem>
                             <DxMenuItem NavigateUrl="/database-manager" Text="Veritabanı Yönetimi" CssClass="menu-item" IconCssClass="icon server-icon"></DxMenuItem>
                             <DxMenuItem NavigateUrl="/logs" Text="Çalıştırma Logları" CssClass="menu-item" IconCssClass="icon history-icon"></DxMenuItem>
                             <DxMenuItem NavigateUrl="/settings" Text="Ayarlar" CssClass="menu-item" IconCssClass="icon cog-icon"></DxMenuItem>

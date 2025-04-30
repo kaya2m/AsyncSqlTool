@@ -222,16 +222,57 @@
     .tab-content {
         padding: 5px 0;
     }
+
+    :deep(.dxbs-popup) {
+        border-radius: 8px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    :deep(.dxbs-popup-footer) {
+        border-top: 1px solid #edf2f7;
+        padding: 15px 20px;
+        position: sticky;
+        bottom: 0;
+        background-color: #fff;
+        z-index: 10;
+        border-radius: 0 0 8px 8px;
+    }
+
+    .popup-footer {
+        position: sticky;
+        bottom: 0;
+        background-color: white;
+        z-index: 5;
+        padding: 15px !important;
+        border-top: 1px solid #edf2f7;
+        margin-top: 10px;
+    }
+
+    /* Grid yükseklik kontrolü */
+    .query-select-grid {
+        display: flex;
+        flex-direction: column;
+    }
+
+    :deep(.dxbs-grid) {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    :deep(.dxbs-grid-table-container) {
+        flex: 1;
+        overflow: auto;
+    }
 </style>
 
 <div class="py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Gelişmiş SQL Sorgu Aracı</h2>
         @if (!string.IsNullOrEmpty(CurrentQueryName))
         {
             <div class="d-flex align-items-center">
                 <span class="status-badge info">
-                    <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName
+                    <h5>Seçili Sorgu:   <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
                 </span>
             </div>
         }
@@ -283,7 +324,8 @@
                     <DxMemo @bind-Text="@QueryText"
                            CssClass="w-100 query-editor"
                            SizeMode="SizeMode.Large"
-                           Height="180px"
+                            ResizeMode="MemoResizeMode.VerticalAndHorizontal"
+                            Rows="18"
                            Placeholder="SELECT * FROM ..." />
                 </div>
                 
@@ -399,7 +441,7 @@
         </div>
     }
 
-    <!-- Kolon Eşleştirme Özeti (Kart içinde) -->
+   @*  <!-- Kolon Eşleştirme Özeti (Kart içinde) -->
     @if (ColumnMappings.Count > 0)
     {
         <div class="card">
@@ -462,7 +504,7 @@
             </div>
         </div>
     }
-
+ *@
     <!-- Sorgu Sonuç Tabı -->
     @if (GridData != null && GridData.Count > 0)
     {
@@ -489,16 +531,23 @@
                         PagerPosition="GridPagerPosition.Bottom"
                         PagerVisibleNumericButtonCount="5"
                         ShowFilterRow="true"
-                        ShowSearchBox="true"
                         SearchBoxNullText="Aramak için yazın..."
                         @ref="PreviewGrid"
-                        CssClass="table-hover grid-striped">
+                        CssClass="table-hover grid-striped"
+                        ShowGroupPanel="true"
+                        TextWrapEnabled="true"
+                        AutoExpandAllGroupRows="true"
+                        FilterMenuButtonDisplayMode="GridFilterMenuButtonDisplayMode.Always"
+                        ShowSearchBox="true"
+                        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+                        AllowSelectRowByClick="true"
+                        HighlightRowOnHover="true">
                     <Columns>
                         @if (GridData.Count > 0)
                         {
                             @foreach (var key in ((IDictionary<string, object>)GridData[0]).Keys)
                             {
-                                <DxGridDataColumn FieldName="@key" Caption="@key" />
+                                <DxGridDataColumn FieldName="@key" Caption="@key" MinWidth="220" />
                             }
                         }
                     </Columns>
@@ -510,22 +559,25 @@
 
 <!-- Kayıtlı Sorguların Görüntülendiği Popup -->
 <DxPopup HeaderText="Kayıtlı Sorgular"
-        @bind-Visible="@IsSavedQueriesPopupVisible"
-        ShowFooter="true"
-        Width="1200px"
->
+         @bind-Visible="@IsSavedQueriesPopupVisible"
+         ShowFooter="true"
+         Width="1200px"
+         MaxHeight="90vh"
+         Position="PopupPosition.Center"
+         ShowMaximizeButton="true"
+         CloseOnEscapeKey="true">
     <HeaderTemplate>
-        <h4 class="p-2  ">Kayıtlı Sorgular</h4>
+        <h4 class="p-2">Kayıtlı Sorgular</h4>
     </HeaderTemplate>
     <BodyTemplate>
-        <div class="query-select-grid" style="height: 700px;">
+        <div class="query-select-grid" style="height: calc(70vh - 120px); overflow: auto;">
             <DxGrid Data="@SavedQueries"
-                   @ref="SavedQueriesGrid"
-                   ShowFilterRow="true"
-                   ShowSearchBox="true"
-                   KeyFieldName="Id"
-                   PageSize="10"
-                   SelectionMode="GridSelectionMode.Single"
+                    @ref="SavedQueriesGrid"
+                    ShowFilterRow="true"
+                    ShowSearchBox="true"
+                    KeyFieldName="Id"
+                    PageSize="10"
+                    SelectionMode="GridSelectionMode.Single"
                     @bind-SelectedDataItem="@SelectedSavedQueryObj">
                 <Columns>
                     <DxGridSelectionColumn Width="50px" />
@@ -539,19 +591,18 @@
         </div>
     </BodyTemplate>
     <FooterTemplate>
-        <div class="d-flex justify-content-end p-2">
+        <div class="d-flex justify-content-end p-2 popup-footer">
             <DxButton Text="İptal"
-                 RenderStyle="ButtonRenderStyle.Dark"
-                 Click="@(() => IsSavedQueriesPopupVisible = false)"
-                 CssClass="me-2" />
+                      RenderStyle="ButtonRenderStyle.Dark"
+                      Click="@(() => IsSavedQueriesPopupVisible = false)"
+                      CssClass="me-2" />
             <DxButton Text="Seçilen Sorguyu Yükle"
-                 RenderStyle="ButtonRenderStyle.Primary"
-                 Click="@LoadSelectedQuery"
-                 Enabled="@(SelectedSavedQueryObj != null)" />
+                      RenderStyle="ButtonRenderStyle.Primary"
+                      Click="@LoadSelectedQuery"
+                      Enabled="@(SelectedSavedQueryObj != null)" />
         </div>
     </FooterTemplate>
 </DxPopup>
-
 <!-- Sorgu Kaydetme Popupı -->
 <DxPopup HeaderText="Sorguyu Kaydet"
         @bind-Visible="@IsSaveQueryPopupVisible"
@@ -797,6 +848,35 @@
     </FooterTemplate>
 </DxPopup>
 
+<DxPopup HeaderText="Sorgu Güncelleme Onayı"
+         @bind-Visible="@IsUpdateConfirmVisible"
+         ShowFooter="true"
+         Width="500px">
+    <HeaderTemplate>
+        <span class="fs-5">Sorgu Güncelleme Onayı</span>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <div class="alert alert-warning">
+            <i class="fa fa-exclamation-triangle me-2"></i>
+            <span>
+                "<b>@SaveQueryName</b>" isimli bir sorgu zaten mevcut. Bu sorguyu güncellemek istiyor musunuz?
+            </span>
+        </div>
+        <p>Mevcut sorgudaki veriler yeni girdiğiniz verilerle değiştirilecektir.</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end">
+            <DxButton Text="İptal"
+                      RenderStyle="ButtonRenderStyle.Secondary"
+                      Click="@CancelUpdate"
+                      CssClass="me-2" />
+            <DxButton Text="Güncelle"
+                      RenderStyle="ButtonRenderStyle.Primary"
+                      Click="@UpdateExistingQuery" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
 @code {
     private string QueryText { get; set; } = string.Empty;
     private string TargetTableName { get; set; } = string.Empty;
@@ -810,7 +890,9 @@
     private List<dynamic> GridData { get; set; } = new List<dynamic>();
     private DxGrid PreviewGrid { get; set; }
     private string CurrentQueryName { get; set; } = string.Empty;
-    
+     private bool IsUpdateConfirmVisible { get; set; } = false;
+    private SavedQuery QueryToUpdate { get; set; } = null;
+
     // Veritabanı bağlantıları
     private List<DatabaseConnection> DatabaseConnections { get; set; } = new List<DatabaseConnection>();
     private int SelectedDatabaseId { get; set; }
@@ -845,6 +927,7 @@
     private List<SavedQuery> SavedQueries { get; set; } = new List<SavedQuery>();
     private DxGrid SavedQueriesGrid { get; set; }
     private object SelectedSavedQueryObj { get; set; }
+
     // Helper method to get the selected query as the correct type
     private SavedQuery GetSelectedSavedQuery() => SelectedSavedQueryObj as SavedQuery;
 
@@ -980,53 +1063,18 @@
 
         try
         {
-            var query = new SavedQuery
+            // Aynı isimde sorgu var mı kontrol et
+            var existingQuery = SavedQueries.FirstOrDefault(q => q.Name.Equals(SaveQueryName, StringComparison.OrdinalIgnoreCase));
+            if (existingQuery != null)
             {
-                Name = SaveQueryName,
-                QueryText = QueryText,
-                TargetTableName = SaveTableName,
-                KeyColumn = SaveKeyColumn,
-                Description = SaveQueryDescription,
-                DatabaseConnectionId = SelectedDatabaseId,
-                CreatedAt = DateTime.Now
-            };
-            
-            // Kolon eşleştirmelerini ekle
-            if (IncludeColumnMappings && ColumnMappings.Count > 0)
-            {
-                query.ColumnMappings = new List<QueryColumnMapping>();
-                
-                foreach (var mapping in ColumnMappings)
-                {
-                    query.ColumnMappings.Add(new QueryColumnMapping
-                    {
-                        SourceColumnName = mapping.SourceColumnName,
-                        TargetColumnName = mapping.TargetColumnName,
-                        DataType = mapping.DataType,
-                        Length = mapping.Length,
-                        Precision = mapping.Precision,
-                        IsPrimaryKey = mapping.IsPrimaryKey,
-                        AllowNull = mapping.AllowNull,
-                        SortOrder = mapping.SortOrder
-                    });
-                }
+                // Mevcut sorguyu kaydet ve güncelleme onay dialogunu göster
+                QueryToUpdate = existingQuery;
+                IsUpdateConfirmVisible = true;
+                return;
             }
 
-            await QueryService.AddSavedQueryAsync(query);
-            
-            // Kayıtlı sorgu listesini güncelle
-            await LoadSavedQueries();
-            
-            // Sorgu adını görüntüle
-            CurrentQueryName = SaveQueryName;
-            
-            // Hedef tabloyu güncelle
-            TargetTableName = SaveTableName;
-            
-            CloseSaveQueryPopup();
-            
-            ResultMessage = $"\"{SaveQueryName}\" sorgusu başarıyla kaydedildi.";
-            IsSuccess = true;
+            // Yeni sorgu oluştur ve kaydet
+            await CreateNewQuery();
         }
         catch (Exception ex)
         {
@@ -1035,6 +1083,7 @@
             IsSuccess = false;
         }
     }
+
     
     private void ShowColumnMappingPopup()
     {
@@ -1543,4 +1592,111 @@
             IsSuccess = false;
         }
     }
+    private async Task CreateNewQuery()
+    {
+        var query = new SavedQuery
+            {
+                Name = SaveQueryName,
+                QueryText = QueryText,
+                TargetTableName = SaveTableName,
+                KeyColumn = SaveKeyColumn,
+                Description = SaveQueryDescription,
+                DatabaseConnectionId = SelectedDatabaseId,
+                CreatedAt = DateTime.Now
+            };
+
+        // Kolon eşleştirmelerini ekle
+        if (IncludeColumnMappings && ColumnMappings.Count > 0)
+        {
+            query.ColumnMappings = new List<QueryColumnMapping>();
+
+            foreach (var mapping in ColumnMappings)
+            {
+                query.ColumnMappings.Add(new QueryColumnMapping
+                    {
+                        SourceColumnName = mapping.SourceColumnName,
+                        TargetColumnName = mapping.TargetColumnName,
+                        DataType = mapping.DataType,
+                        Length = mapping.Length,
+                        Precision = mapping.Precision,
+                        IsPrimaryKey = mapping.IsPrimaryKey,
+                        AllowNull = mapping.AllowNull,
+                        SortOrder = mapping.SortOrder
+                    });
+            }
+        }
+
+        await QueryService.AddSavedQueryAsync(query);
+
+        // Kayıtlı sorgu listesini güncelle
+        await LoadSavedQueries();
+
+        // Sorgu adını görüntüle
+        CurrentQueryName = SaveQueryName;
+
+        // Hedef tabloyu güncelle
+        TargetTableName = SaveTableName;
+
+        CloseSaveQueryPopup();
+
+        ResultMessage = $"\"{SaveQueryName}\" sorgusu başarıyla kaydedildi.";
+        IsSuccess = true;
+    }
+
+    private async Task UpdateExistingQuery()
+    {
+        if (QueryToUpdate == null)
+            return;
+
+        // Mevcut sorguyu güncelle
+        QueryToUpdate.QueryText = QueryText;
+        QueryToUpdate.TargetTableName = SaveTableName;
+        QueryToUpdate.KeyColumn = SaveKeyColumn;
+        QueryToUpdate.Description = SaveQueryDescription;
+        QueryToUpdate.DatabaseConnectionId = SelectedDatabaseId;
+
+        // Kolon eşleştirmelerini güncelle
+        if (IncludeColumnMappings && ColumnMappings.Count > 0)
+        {
+            // Mevcut eşleştirmeleri temizleme işlemi server tarafında yapılacak
+            QueryToUpdate.ColumnMappings = new List<QueryColumnMapping>();
+
+            foreach (var mapping in ColumnMappings)
+            {
+                QueryToUpdate.ColumnMappings.Add(new QueryColumnMapping
+                    {
+                        SourceColumnName = mapping.SourceColumnName,
+                        TargetColumnName = mapping.TargetColumnName,
+                        DataType = mapping.DataType,
+                        Length = mapping.Length,
+                        Precision = mapping.Precision,
+                        IsPrimaryKey = mapping.IsPrimaryKey,
+                        AllowNull = mapping.AllowNull,
+                        SortOrder = mapping.SortOrder
+                    });
+            }
+        }
+
+        await QueryService.UpdateSavedQueryAsync(QueryToUpdate);
+
+        await LoadSavedQueries();
+
+        CurrentQueryName = SaveQueryName;
+
+        TargetTableName = SaveTableName;
+
+        IsUpdateConfirmVisible = false;
+        QueryToUpdate = null;
+        CloseSaveQueryPopup();
+
+        ResultMessage = $"\"{SaveQueryName}\" sorgusu başarıyla güncellendi.";
+        IsSuccess = true;
+    }
+
+    private void CancelUpdate()
+    {
+        IsUpdateConfirmVisible = false;
+        QueryToUpdate = null;
+    }
+
 }
