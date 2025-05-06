@@ -1,4 +1,92 @@
-﻿<style>
+﻿
+<style>
+    /* Menu Icon Base Styles */
+    .menu-icon {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        margin-right: 10px;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: contain;
+        vertical-align: middle;
+    }
+
+    /* Individual Menu Icons - Changed to white (rgba(255,255,255,1)) */
+    .menu-icon-contacts {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M3 3h18a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm1 2v14h16V5H4zm3 10.5h10a.5.5 0 0 1 0 1H7a.5.5 0 0 1 0-1zm0-4h10a.5.5 0 0 1 0 1H7a.5.5 0 0 1 0-1zm0-4h10a.5.5 0 0 1 0 1H7a.5.5 0 0 1 0-1z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+    }
+
+    .menu-icon-products {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M20 22H4v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2zm-8-9a6 6 0 1 1 0-12 6 6 0 0 1 0 12z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+    }
+
+    .menu-icon-about {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M3 4.995C3 3.893 3.893 3 4.995 3h14.01C20.107 3 21 3.893 21 4.995v14.01A1.995 1.995 0 0 1 19.005 21H4.995A1.995 1.995 0 0 1 3 19.005V4.995zM5 5v14h14V5H5zm2.972 13.181a9.994 9.994 0 0 1-1.751-.413l.483-1.91a7.834 7.834 0 0 0 1.47.342l-.202 1.981zm2.875-.142a10.214 10.214 0 0 1-2.162-.476l.5-1.902c.66.188 1.342.326 2.053.398l-.39 1.98zm3.682-.314a10.226 10.226 0 0 1-2.466-.06l.254-1.996a8.19 8.19 0 0 0 2.372.04l-.16 2.016zm3.346-1.037a10.044 10.044 0 0 1-2.174.596l-.417-1.97a7.845 7.845 0 0 0 1.787-.473l.804 1.847zm-1.848-8.299A5.028 5.028 0 0 1 15 13a4.96 4.96 0 0 1-4-2.03A4.96 4.96 0 0 1 7 13a5.028 5.028 0 0 1-1.974-4.388C5.024 6.015 6.478 4.502 9 4.502c1.39 0 2.551.653 3 1.741.449-1.088 1.61-1.741 3-1.741 2.522 0 3.976 1.513 3.974 4.111h.002z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+    }
+
+    .menu-icon-support {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M12 1l8.217 4.6v9.6L12 19.8l-8.217-4.6v-9.6L12 1zm0 2.345L5.522 6.6v7.2L12 17.055 18.478 13.8v-7.2L12 3.345z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+    }
+
+    /* Custom DocuNav Menu Icons - Changed to white */
+    .docs-icon {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='18' height='18'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M19 22H5a3 3 0 0 1-3-3V3a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v12h4v4a3 3 0 0 1-3 3zm-1-5v2a1 1 0 0 0 2 0v-2h-2zm-2 3V4H4v15a1 1 0 0 0 1 1h11zM6 7h8v2H6V7zm0 4h8v2H6v-2zm0 4h5v2H6v-2z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+        width: 18px;
+        height: 18px;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 8px;
+    }
+
+    .demos-icon {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='18' height='18'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M4 16V4H2V2h20v2h-2v12h2v2H2v-2h2zm2-11v9h12V5H6z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+        width: 18px;
+        height: 18px;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 8px;
+    }
+
+    .dx-menu-item:hover .menu-icon {
+        filter: brightness(0.9);
+    }
+
+    .dx-menu-item.dx-state-focused .menu-icon,
+    .dx-menu-item.dx-state-active .menu-icon {
+        filter: brightness(0.8);
+    }
+
+    .menu {
+        width: 100%;
+    }
+
+    .menu-item {
+        margin: 4px 0;
+        border-radius: 4px;
+        transition: background-color 0.2s ease;
+    }
+
+        .menu-item:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+    /* For dark background styling */
+    .theme-dark .menu-icon {
+        /* No need for brightness adjustment since icons are already white */
+        filter: none;
+    }
+
+    /* Menu button icon (hamburger) - also changed to white */
+    .menu-button {
+        cursor: pointer;
+        width: 24px;
+        height: 24px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z' fill='rgba(255,255,255,1)'/%3E%3C/svg%3E");
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+    }
     .sidebar-header {
         padding: 1rem;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -22,8 +110,72 @@
             transform: scale(1.05);
         }
 
+    .menu-button-container {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
 
+    .menu-button {
+        cursor: pointer;
+        width: 24px;
+        height: 24px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' d='M0 0h24v24H0z'/%3E%3Cpath d='M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z' fill='rgba(75,85,99,1)'/%3E%3C/svg%3E");
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+    }
+
+    .footer {
+        display: flex;
+        justify-content: space-around;
+        padding: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .footer-button {
+        width: 100%;
+    }
+
+    .button-link {
+        flex: 1;
+        margin: 0 0.25rem;
+    }
+
+    /* Menu closing overlay */
+    .menu-closeonclick-placeholder {
+        display: none;
+    }
+
+
+    #sidebar.auto-expanded .menu-closeonclick-placeholder {
+        display: block;
+    }
+
+    }
+
+    /* Auto expanded sidebar */
+    #sidebar {
+        width: 250px;
+        height: 100%;
+        transition: width 0.3s ease;
+        overflow: hidden;
+    }
+
+  
+
+    #sidebar.auto-expanded {
+        width: 250px;
+        position: absolute;
+        z-index: 101;
+        height: 100%;
+        background-color: #fff;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    }
 </style>
+
 <div id="sidebar">
     <DxGridLayout CssClass="page-layout" RowSpacing="1.5rem">
         <Rows>
@@ -39,13 +191,15 @@
             <DxGridLayoutItem Area="header" CssClass="sidebar-header">
                 <Template>
                     <div class="logo-container">
-                        <img class="logo" src="images/logo.svg" alt="ToolBase - SQL Sorgu Aracı" />
+                        <NavLink href="/query">
+                            <img class="logo" src="images/logo.svg" alt="ToolBase - SQL Sorgu Aracı" />
+                        </NavLink>
                     </div>
                 </Template>
             </DxGridLayoutItem>
             <DxGridLayoutItem Area="menu-button" CssClass="sidebar-header menu-button-container">
                 <Template>
-                    <div class="menu-button" onclick="(document.getElementById('sidebar').classList.toggle('auto-expanded'), document.getElementById('menu-top').classList.toggle('hidden'))"></div>
+                    <div class="menu-button" onclick="(document.getElementById('sidebar').classList.toggle('auto-expanded'), document.getElementById('menu-top') && document.getElementById('menu-top').classList.toggle('hidden'))"></div>
                 </Template>
             </DxGridLayoutItem>
             <DxGridLayoutItem Area="navigation" CssClass="layout-item">
@@ -54,25 +208,22 @@
                     </div>
                     <DxMenu Orientation="@Orientation.Vertical" CssClass="menu">
                         <Items>
-                            <DxMenuItem NavigateUrl="/" Text="Ana Sayfa" CssClass="menu-item" IconCssClass="icon home-icon"></DxMenuItem>
-                            <DxMenuItem NavigateUrl="/query" Text="SQL Sorgu" CssClass="menu-item" IconCssClass="icon terminal-icon"></DxMenuItem>
-                            <DxMenuItem NavigateUrl="/database-manager" Text="Veritabanı Yönetimi" CssClass="menu-item" IconCssClass="icon server-icon"></DxMenuItem>
-                            <DxMenuItem NavigateUrl="/logs" Text="Çalıştırma Logları" CssClass="menu-item" IconCssClass="icon history-icon"></DxMenuItem>
-                            <DxMenuItem NavigateUrl="/settings" Text="Ayarlar" CssClass="menu-item" IconCssClass="icon cog-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/query" Text="SQL Sorgu" CssClass="menu-item" IconCssClass="menu-icon-contacts menu-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/settings" Text="Görev Planlama" CssClass="menu-item" IconCssClass="menu-icon-support menu-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/database-manager" Text="Veritabanı Yönetimi" CssClass="menu-item" IconCssClass="menu-icon-products menu-icon"></DxMenuItem>
+                            <DxMenuItem NavigateUrl="/logs" Text="Çalıştırma Logları" CssClass="menu-item" IconCssClass="menu-icon-about menu-icon"></DxMenuItem>
                         </Items>
                     </DxMenu>
                 </Template>
             </DxGridLayoutItem>
             <DxGridLayoutItem Area="footer" CssClass="footer">
                 <Template>
-                    <NavLink href="https://docs.devexpress.com/Blazor/400725/blazor-components" class="button-link">
-                        <DxButton Text="Docs" RenderStyleMode="@ButtonRenderStyleMode.Text" CssClass="footer-button" RenderStyle="@ButtonRenderStyle.Light" IconCssClass="icon docs-icon"></DxButton>
-                    </NavLink>
-                    <NavLink href="https://demos.devexpress.com/blazor/" class="button-link">
-                        <DxButton Text="Demos" RenderStyleMode="@ButtonRenderStyleMode.Text" CssClass="footer-button" RenderStyle="@ButtonRenderStyle.Light" IconCssClass="icon demos-icon"></DxButton>
+                    <NavLink href="https://demos.devexpress.com/blazor/" target="_blank" class="button-link">
+                        <DxButton Text="Demos" RenderStyleMode="@ButtonRenderStyleMode.Text" CssClass="footer-button" RenderStyle="@ButtonRenderStyle.Light" IconCssClass="demos-icon"></DxButton>
                     </NavLink>
                 </Template>
             </DxGridLayoutItem>
         </Items>
     </DxGridLayout>
 </div>
+

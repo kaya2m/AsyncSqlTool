@@ -7,9 +7,7 @@
 @using DevExpress.Blazor.Grid
 @inject QueryService QueryService
 @inject ILogger<QueryPage> Logger
-
 <style>
-    /* Modern ve estetik stil tanımlamaları */
     .main-container {
         max-width: 1400px;
         margin: 0 auto;
@@ -267,17 +265,6 @@
 </style>
 
 <div class="py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        @if (!string.IsNullOrEmpty(CurrentQueryName))
-        {
-            <div class="d-flex align-items-center">
-                <span class="status-badge info">
-                    <h5>Seçili Sorgu:   <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
-                </span>
-            </div>
-        }
-    </div>
-
     <div class="card">
         <div class="card-header">
             <div class="toolbar">
@@ -286,12 +273,15 @@
                         Bağlantı Adı :
                     </label>
                     <DxComboBox Data="@DatabaseConnections"
-                                @bind-Value="@SelectedDatabaseId"
+                                Value="@SelectedDatabaseId"
+                                ValueChanged="@((int value) => DatabaseSelectionChanged(value))"
                                 TextFieldName="Name"
                                 ValueFieldName="Id"
                                 CssClass="me-2"
                                 Width="250px"
                                 InputId="dbConnection"
+                                SearchMode="ListSearchMode.AutoSearch"
+                                SearchFilterCondition="ListSearchFilterCondition.Contains"
                                 NullText="Veritabanı bağlantısı seçin..." />
                 </div>
 
@@ -320,13 +310,48 @@
         <div class="card-body">
             <div class="row">
                 <div class="col-md-8">
-                    <div class="section-title">Kaynak SQL Sorgusu</div>
+                    <div class="row">
+                        <div class="col-md-12">
+                            @if (!string.IsNullOrEmpty(CurrentQueryName))
+                            {
+                                <div class="d-flex align-items-center">
+                                    <span class="status-badge info">
+                                        <h5>Seçili Sorgu:   <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
+                                    </span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="section-title">Sorgu Yapılandırması</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <DxMemo @bind-Text="@PreQuery"
+                                Label="Ön Sorgu (SQL Server)"
+                                CssClass="w-100"
+                                Rows="3"
+                                NullText="SQL Server'da ana sorgudan önce çalıştırılacak sorgu (opsiyonel)..."
+                                LabelPosition="LabelPosition.Top" />
+                    </div>
+
                     <DxMemo @bind-Text="@QueryText"
                             CssClass="w-100 query-editor"
                             SizeMode="SizeMode.Large"
                             ResizeMode="MemoResizeMode.VerticalAndHorizontal"
-                            Rows="18"
+                            Rows="15"
+                            NullText="Kaynak Sorgu"
                             Placeholder="SELECT * FROM ..." />
+
+                    <div class="mb-3 mt-3">
+                        <DxMemo @bind-Text="@PostQuery"
+                                Label="Son Sorgu (SQL Server)"
+                                CssClass="w-100"
+                                Rows="3"
+                                NullText="SQL Server'da ana sorgudan sonra çalıştırılacak sorgu (opsiyonel)..."
+                                LabelPosition="LabelPosition.Top" />
+                    </div>
                 </div>
 
                 <div class="col-md-4">
@@ -376,7 +401,6 @@
                                     InputId="count" />
                     </div>
 
-                    <!-- Tablo İşlemleri -->
                     @if (!string.IsNullOrEmpty(TargetTableName))
                     {
                         <div class="table-operations">
@@ -440,71 +464,6 @@
             <button type="button" class="btn-close" aria-label="Close" @onclick="@(() => ResultMessage = null)"></button>
         </div>
     }
-
-    @*  <!-- Kolon Eşleştirme Özeti (Kart içinde) -->
-    @if (ColumnMappings.Count > 0)
-    {
-        <div class="card">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Kolon Eşleştirmeleri (@ColumnMappings.Count kolon)</h5>
-                    <DxButton Text="Düzenle"
-                             IconCssClass="fa fa-pencil"
-                             RenderStyle="ButtonRenderStyle.Light"
-                             CssClass="btn-sm"
-                             Click="@ShowColumnMappingPopup" />
-                </div>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="column-mapping-table">
-                        <thead>
-                            <tr>
-                                <th>Kaynak Kolon</th>
-                                <th>Hedef Kolon</th>
-                                <th>Veri Tipi</th>
-                                <th style="width:80px;">Anahtar</th>
-                                <th style="width:80px;">Boş?</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var mapping in ColumnMappings.Take(5))
-                            {
-                                <tr>
-                                    <td>@mapping.SourceColumnName</td>
-                                    <td>@mapping.TargetColumnName</td>
-                                    <td>@mapping.DataType@(mapping.Length > 0 ? $"({mapping.Length})" : "")</td>
-                                    <td class="text-center">
-                                        @if (mapping.IsPrimaryKey)
-                                        {
-                                            <i class="fa fa-key text-warning"></i>
-                                        }
-                                    </td>
-                                    <td class="text-center">
-                                        @if (mapping.AllowNull)
-                                        {
-                                            <i class="fa fa-check text-success"></i>
-                                        }
-                                        else
-                                        {
-                                            <i class="fa fa-times text-danger"></i>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-                @if (ColumnMappings.Count > 5)
-                {
-                    <div class="p-3 text-center">
-                        <span class="text-muted">ve @(ColumnMappings.Count - 5) kolon daha...</span>
-                    </div>
-                }
-            </div>
-        </div>
-    }
- *@
     <!-- Sorgu Sonuç Tabı -->
     @if (GridData != null && GridData.Count > 0)
     {
@@ -563,9 +522,8 @@
          ShowFooter="true"
          Width="1200px"
          MaxHeight="90vh"
-         Position="PopupPosition.Center"
-         ShowMaximizeButton="true"
-         CloseOnEscapeKey="true">
+         CloseOnOutsideClick="true"
+         CloseOnEscape="true">
     <HeaderTemplate>
         <h4 class="p-2">Kayıtlı Sorgular</h4>
     </HeaderTemplate>
@@ -578,28 +536,78 @@
                     KeyFieldName="Id"
                     PageSize="10"
                     SelectionMode="GridSelectionMode.Single"
-                    @bind-SelectedDataItem="@SelectedSavedQueryObj">
+                    @bind-SelectedDataItem="@SelectedSavedQueryObj"
+                    FocusedRowChanged="@Grid_FocusedRowChanged">
                 <Columns>
                     <DxGridSelectionColumn Width="50px" />
                     <DxGridDataColumn FieldName="Name" Caption="Sorgu Adı" Width="200px" />
                     <DxGridDataColumn FieldName="DatabaseConnection.Name" Caption="Veritabanı" Width="150px" />
                     <DxGridDataColumn FieldName="TargetTableName" Caption="Hedef Tablo" Width="150px" />
-                    <DxGridDataColumn FieldName="QueryText" Caption="SQL Sorgusu">
+                    <DxGridDataColumn FieldName="IsScheduled" Caption="Zamanlanmış" Width="100px">
+                        <CellDisplayTemplate Context="cellContext">
+                            @{
+                                var query = (cellContext.DataItem as SavedQuery);
+                                if (query?.IsScheduled == true)
+                                {
+                                    <div class="text-center">
+                                        <i class="fa fa-check text-success"></i>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="text-center">
+                                        <i class="fa fa-times text-danger"></i>
+                                    </div>
+                                }
+                            }
+                        </CellDisplayTemplate>
                     </DxGridDataColumn>
+                    <DxGridDataColumn FieldName="QueryText" Caption="SQL Sorgusu" />
                 </Columns>
             </DxGrid>
         </div>
     </BodyTemplate>
     <FooterTemplate>
         <div class="d-flex justify-content-end p-2 popup-footer">
-            <DxButton Text="İptal"
-                      RenderStyle="ButtonRenderStyle.Dark"
-                      Click="@(() => IsSavedQueriesPopupVisible = false)"
-                      CssClass="me-2" />
             <DxButton Text="Seçilen Sorguyu Yükle"
+                      CssClass="me-2"
                       RenderStyle="ButtonRenderStyle.Primary"
                       Click="@LoadSelectedQuery"
                       Enabled="@(SelectedSavedQueryObj != null)" />
+            <DxButton Text="Seçilen Sorguyu Sil"
+                      RenderStyle="ButtonRenderStyle.Danger"
+                      Click="@DeleteItem_Click"
+                      Enabled="@(SelectedSavedQueryObj != null)" />
+        </div>
+    </FooterTemplate>
+</DxPopup>
+
+<!-- Silme Onay Popupı Ekleyin -->
+<DxPopup HeaderText="Sorgu Silme Onayı"
+         @bind-Visible="@IsDeleteConfirmationVisible"
+         ShowFooter="true"
+         Width="400px"
+         Position="PopupPosition.Center"
+         CloseOnEscapeKey="true">
+    <HeaderTemplate>
+        <h5 class="p-2">Sorgu Silme Onayı</h5>
+    </HeaderTemplate>
+    <BodyTemplate>
+        <p class="mb-0 p-2">
+            <strong>@(QueryToDelete?.Name)</strong> sorgusunu silmek istediğinizden emin misiniz?
+            <br />
+            Bu işlem geri alınamaz.
+        </p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <div class="d-flex justify-content-end p-2 popup-footer">
+            <DxButton Text="İptal"
+                      RenderStyle="ButtonRenderStyle.Light"
+                      Click="@(() => IsDeleteConfirmationVisible = false)"
+                      CssClass="me-2" />
+            <DxButton Text="Sil"
+                      RenderStyle="ButtonRenderStyle.Danger"
+                      Click="@DeleteSelectedQuery" />
         </div>
     </FooterTemplate>
 </DxPopup>
@@ -760,44 +768,44 @@
                         {
                             var index = i;
                             <tr>
-    <td>
-        <DxTextBox @bind-Text="@ColumnMappings[index].SourceColumnName" 
-            NullText="Kaynak kolon adı" />
-    </td>
-    <td>
-        <DxTextBox @bind-Text="@ColumnMappings[index].TargetColumnName" 
-            NullText="Hedef kolon adı" />
-    </td>
-    <td>
-        <DxComboBox Data="@SqlDataTypes"
-            @bind-Value="@ColumnMappings[index].DataType"
-            NullText="Veri tipi seçin" />
-    </td>
-    <td>
-        <DxSpinEdit @bind-Value="@ColumnMappings[index].Length" />
-    </td>
-    <td>
-        <DxSpinEdit @bind-Value="@ColumnMappings[index].Precision" />
-    </td>
-    <td>
-        <DxSpinEdit @bind-Value="@ColumnMappings[index].Scale" />
-    </td>
-    <td class="text-center">
-        <DxCheckBox @bind-Checked="@ColumnMappings[index].IsPrimaryKey" />
-    </td>
-    <td class="text-center">
-        <DxCheckBox @bind-Checked="@ColumnMappings[index].AllowNull" />
-    </td>
-    <td>
-        <div class="d-flex justify-content-center">
-            <DxButton Text=""
-                IconCssClass="fa fa-trash"
-                RenderStyle="ButtonRenderStyle.Danger"
-                CssClass="btn-sm"
-                Click="@(() => RemoveColumnMapping(index))" />
-        </div>
-    </td>
-</tr>
+                                <td>
+                                    <DxTextBox @bind-Text="@ColumnMappings[index].SourceColumnName"
+                                               NullText="Kaynak kolon adı" />
+                                </td>
+                                <td>
+                                    <DxTextBox @bind-Text="@ColumnMappings[index].TargetColumnName"
+                                               NullText="Hedef kolon adı" />
+                                </td>
+                                <td>
+                                    <DxComboBox Data="@SqlDataTypes"
+                                                @bind-Value="@ColumnMappings[index].DataType"
+                                                NullText="Veri tipi seçin" />
+                                </td>
+                                <td>
+                                    <DxSpinEdit @bind-Value="@ColumnMappings[index].Length" />
+                                </td>
+                                <td>
+                                    <DxSpinEdit @bind-Value="@ColumnMappings[index].Precision" />
+                                </td>
+                                <td>
+                                    <DxSpinEdit @bind-Value="@ColumnMappings[index].Scale" />
+                                </td>
+                                <td class="text-center">
+                                    <DxCheckBox @bind-Checked="@ColumnMappings[index].IsPrimaryKey" />
+                                </td>
+                                <td class="text-center">
+                                    <DxCheckBox @bind-Checked="@ColumnMappings[index].AllowNull" />
+                                </td>
+                                <td>
+                                    <div class="d-flex justify-content-center">
+                                        <DxButton Text=""
+                                                  IconCssClass="fa fa-trash"
+                                                  RenderStyle="ButtonRenderStyle.Danger"
+                                                  CssClass="btn-sm"
+                                                  Click="@(() => RemoveColumnMapping(index))" />
+                                    </div>
+                                </td>
+                            </tr>
                         }
                     </tbody>
                 </table>
@@ -892,7 +900,13 @@
     private string CurrentQueryName { get; set; } = string.Empty;
     private bool IsUpdateConfirmVisible { get; set; } = false;
     private SavedQuery QueryToUpdate { get; set; } = null;
-
+    private bool IsDeleteConfirmationVisible { get; set; } = false;
+    private SavedQuery QueryToDelete { get; set; }
+    private string PreQuery { get; set; } = string.Empty;
+    private string PostQuery { get; set; } = string.Empty;
+    private string SavePreQuery { get; set; } = string.Empty;
+    private string SavePostQuery { get; set; } = string.Empty;
+    IGrid Grid { get; set; }
     // Veritabanı bağlantıları
     private List<DatabaseConnection> DatabaseConnections { get; set; } = new List<DatabaseConnection>();
     private int SelectedDatabaseId { get; set; }
@@ -932,6 +946,7 @@
     // Helper method to get the selected query as the correct type
     private SavedQuery GetSelectedSavedQuery() => SelectedSavedQueryObj as SavedQuery;
 
+
     protected override async Task OnInitializedAsync()
     {
         await LoadDatabaseConnections();
@@ -956,12 +971,18 @@
             IsSuccess = false;
         }
     }
-
+    private async void DatabaseSelectionChanged(int newDatabaseId)
+    {
+        SelectedDatabaseId = newDatabaseId;
+        SavedQueries = await QueryService.GetSavedQueriesByDatabaseConnectionIdAsync(SelectedDatabaseId);
+        StateHasChanged();
+    }
+   
     private async Task LoadSavedQueries()
     {
         try
         {
-            SavedQueries = await QueryService.GetAllSavedQueriesAsync();
+            SavedQueries = await QueryService.GetSavedQueriesByDatabaseConnectionIdAsync(SelectedDatabaseId);
         }
         catch (Exception ex)
         {
@@ -991,15 +1012,33 @@
             KeyColumn = selectedQuery.KeyColumn;
             SelectedDatabaseId = selectedQuery.DatabaseConnectionId;
             CurrentQueryName = selectedQuery.Name;
+            PreQuery = selectedQuery.PreQuery ?? string.Empty;
+            PostQuery = selectedQuery.PostQuery ?? string.Empty;
 
-            // Sorgu adını kaydetme formuna da ekle
             SaveQueryName = selectedQuery.Name;
 
-            // Kolon eşleştirmelerini yükle
             ColumnMappings.Clear();
-            if (selectedQuery.ColumnMappings != null && selectedQuery.ColumnMappings.Any())
+
+            await LoadColumnMappingsForQuery(selectedQuery.Id);
+
+            ResultMessage = $"\"{selectedQuery.Name}\" sorgusu başarıyla yüklendi.";
+            IsSuccess = true;
+        }
+
+        IsSavedQueriesPopupVisible = false;
+    }
+
+    private async Task LoadColumnMappingsForQuery(int queryId)
+    {
+        try
+        {
+            var mappings = await QueryService.GetColumnMappingsForQueryAsync(queryId);
+
+            ColumnMappings.Clear();
+
+            if (mappings != null && mappings.Any())
             {
-                foreach (var mapping in selectedQuery.ColumnMappings)
+                foreach (var mapping in mappings)
                 {
                     ColumnMappings.Add(new QueryColumnMapping
                         {
@@ -1016,12 +1055,13 @@
                         });
                 }
             }
-
-            ResultMessage = $"\"{selectedQuery.Name}\" sorgusu başarıyla yüklendi.";
-            IsSuccess = true;
         }
-
-        IsSavedQueriesPopupVisible = false;
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu için kolon eşleştirmeleri yüklenirken hata oluştu");
+            ResultMessage = $"Kolon eşleştirmeleri yüklenirken hata: {ex.Message}";
+            IsSuccess = false;
+        }
     }
 
     private void ShowSaveQueryPopup()
@@ -1038,6 +1078,8 @@
         SaveTableName = TargetTableName;
         SaveKeyColumn = KeyColumn;
         SaveQueryDescription = string.Empty;
+        SavePreQuery = PreQuery;
+        SavePostQuery = PostQuery;
 
         IsSaveQueryPopupVisible = true;
     }
@@ -1108,7 +1150,7 @@
                 DataType = "NVARCHAR",
                 Length = 100,
                 Precision = 0,
-                Scale = 0,  
+                Scale = 0,
                 IsPrimaryKey = false,
                 AllowNull = true,
                 SortOrder = ColumnMappings.Count + 1
@@ -1166,8 +1208,8 @@
                             TargetColumnName = key,
                             DataType = dataType,
                             Length = dataType.Contains("VARCHAR") ? 255 : 0,
-                            Precision = dataType == "DECIMAL" ? 18 : 0,  
-                            Scale = dataType == "DECIMAL" ? 2 : 0,    
+                            Precision = dataType == "DECIMAL" ? 18 : 0,
+                            Scale = dataType == "DECIMAL" ? 2 : 0,
                             IsPrimaryKey = KeyColumn == key,
                             AllowNull = true,
                             SortOrder = sortOrder++
@@ -1399,7 +1441,7 @@
                             DataType = dataType.ToUpper(),
                             Length = length,
                             Precision = precision,
-                            Scale = scale,  
+                            Scale = scale,
                             IsPrimaryKey = isPrimaryKey,
                             AllowNull = isNullable,
                             SortOrder = sortOrder++
@@ -1481,8 +1523,8 @@
                 QueryText,
                 TargetTableName,
                 KeyColumn,
-                null, 
-                columnMappingsToSend); 
+                null,
+                columnMappingsToSend);
 
             ResultMessage = result.message;
             IsSuccess = result.success;
@@ -1537,7 +1579,6 @@
 
             if (result.success && result.data.Count > 0)
             {
-                // Dinamik veriyi Grid için ExpandoObject listesine dönüştür
                 var gridData = new List<dynamic>();
 
                 foreach (var row in result.data)
@@ -1557,10 +1598,8 @@
                 ResultMessage = result.message;
                 IsSuccess = true;
 
-                // Sorgu kolonlarından otomatik kolon eşleştirmeleri oluştur
                 if (ColumnMappings.Count == 0 && result.data.Count > 0)
                 {
-                    // İlk satırdan kolon isimlerini al
                     var firstRow = result.data[0];
                     int sortOrder = 1;
 
@@ -1614,7 +1653,6 @@
 
         try
         {
-            // DevExpress Grid Excel export
             await PreviewGrid.ExportToXlsxAsync($"SqlQuery_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
             ResultMessage = "Veriler Excel'e başarıyla aktarıldı.";
             IsSuccess = true;
@@ -1635,10 +1673,11 @@
                 KeyColumn = SaveKeyColumn,
                 Description = SaveQueryDescription,
                 DatabaseConnectionId = SelectedDatabaseId,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.Now,
+                PreQuery = SavePreQuery,
+                PostQuery = SavePostQuery
             };
 
-        // Kolon eşleştirmelerini ekle
         if (IncludeColumnMappings && ColumnMappings.Count > 0)
         {
             query.ColumnMappings = new List<QueryColumnMapping>();
@@ -1652,7 +1691,7 @@
                         DataType = mapping.DataType,
                         Length = mapping.Length,
                         Precision = mapping.Precision,
-                        Scale = mapping.Scale,  // Yeni satır ekleyin
+                        Scale = mapping.Scale,
                         IsPrimaryKey = mapping.IsPrimaryKey,
                         AllowNull = mapping.AllowNull,
                         SortOrder = mapping.SortOrder
@@ -1661,14 +1700,8 @@
         }
 
         await QueryService.AddSavedQueryAsync(query);
-
-        // Kayıtlı sorgu listesini güncelle
         await LoadSavedQueries();
-
-        // Sorgu adını görüntüle
         CurrentQueryName = SaveQueryName;
-
-        // Hedef tabloyu güncelle
         TargetTableName = SaveTableName;
 
         CloseSaveQueryPopup();
@@ -1682,13 +1715,13 @@
         if (QueryToUpdate == null)
             return;
 
-        // Mevcut sorguyu güncelle
         QueryToUpdate.QueryText = QueryText;
         QueryToUpdate.TargetTableName = SaveTableName;
         QueryToUpdate.KeyColumn = SaveKeyColumn;
         QueryToUpdate.Description = SaveQueryDescription;
         QueryToUpdate.DatabaseConnectionId = SelectedDatabaseId;
-
+        QueryToUpdate.PreQuery = SavePreQuery;
+        QueryToUpdate.PostQuery = SavePostQuery;
         // Kolon eşleştirmelerini güncelle
         if (IncludeColumnMappings && ColumnMappings.Count > 0)
         {
@@ -1704,7 +1737,7 @@
                         DataType = mapping.DataType,
                         Length = mapping.Length,
                         Precision = mapping.Precision,
-                        Scale = mapping.Scale,  
+                        Scale = mapping.Scale,
                         IsPrimaryKey = mapping.IsPrimaryKey,
                         AllowNull = mapping.AllowNull,
                         SortOrder = mapping.SortOrder
@@ -1733,5 +1766,71 @@
         IsUpdateConfirmVisible = false;
         QueryToUpdate = null;
     }
+    private void ConfirmDeleteQuery(SavedQuery query)
+    {
+        QueryToDelete = query;
+        IsDeleteConfirmationVisible = true;
+    }
+    private async Task DeleteSelectedQuery()
+    {
+        if (QueryToDelete == null)
+            return;
 
+        try
+        {
+            bool result = await QueryService.DeleteSavedQueryAsync(QueryToDelete.Id);
+
+            if (result)
+            {
+                ResultMessage = $"\"{QueryToDelete.Name}\" sorgusu başarıyla silindi.";
+                IsSuccess = true;
+
+                if (CurrentQueryName == QueryToDelete.Name)
+                {
+                    CurrentQueryName = string.Empty;
+                    QueryText = string.Empty;
+                    TargetTableName = string.Empty;
+                    KeyColumn = string.Empty;
+                    ColumnMappings.Clear();
+                }
+            }
+            else
+            {
+                ResultMessage = "Sorgu silinemedi.";
+                IsSuccess = false;
+            }
+
+            await LoadSavedQueries();
+            IsDeleteConfirmationVisible = false;
+            QueryToDelete = null;
+            SelectedSavedQueryObj = null;
+            IsSavedQueriesPopupVisible = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Sorgu silinirken hata oluştu");
+            ResultMessage = $"Hata: {ex.Message}";
+            IsSuccess = false;
+            IsDeleteConfirmationVisible = false;
+        }
+    }
+    bool EditItemsEnabled { get; set; }
+    void UpdateEditItemsEnabled(bool enabled)
+    {
+        EditItemsEnabled = enabled;
+    }
+    int FocusedRowVisibleIndex { get; set; }
+    void DeleteItem_Click()
+    {
+        var selectedQuery = GetSelectedSavedQuery();
+        if (selectedQuery != null)
+        {
+            ConfirmDeleteQuery(selectedQuery);
+        }
+    }
+    void Grid_FocusedRowChanged(GridFocusedRowChangedEventArgs args)
+    {
+        FocusedRowVisibleIndex = args.VisibleIndex;
+        UpdateEditItemsEnabled(true);
+    }
 }

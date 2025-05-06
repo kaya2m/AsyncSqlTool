@@ -30,6 +30,8 @@ namespace AsyncSqlTool.Models
         public string Description { get; set; }
 
         public bool IsScheduled { get; set; } = false;
+        public DateTime? NextScheduledRun { get; set; }
+
 
         [StringLength(50)]
         public string ScheduleExpression { get; set; } // CRON ifadesi olabilir
@@ -37,6 +39,9 @@ namespace AsyncSqlTool.Models
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
         public DateTime? LastExecuted { get; set; }
+        public string PreQuery { get; set; }
+
+        public string PostQuery { get; set; }
 
         public int DatabaseConnectionId { get; set; }
 
@@ -46,5 +51,6 @@ namespace AsyncSqlTool.Models
         // İlişkiler
         public virtual ICollection<QueryColumnMapping> ColumnMappings { get; set; }
         public virtual ICollection<QueryExecutionLog> ExecutionLogs { get; set; }
+
     }
 }

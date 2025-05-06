@@ -53,7 +53,7 @@ namespace AsyncSqlTool.Data
                 using var connection = await CreateConnectionAsync(dbConnection);
                 IDbCommand command = connection.CreateCommand();
                 command.CommandText = query;
-                command.CommandTimeout = 120; // 2 dakika
+                command.CommandTimeout = 720; // 2 dakika
 
                 using var reader = await ExecuteReaderAsync(command);
                 while (await ReadAsync(reader))
@@ -94,7 +94,7 @@ namespace AsyncSqlTool.Data
                 using var connection = await CreateConnectionAsync(dbConnection);
                 IDbCommand command = connection.CreateCommand();
                 command.CommandText = query;
-                command.CommandTimeout = 120; // 2 dakika
+                command.CommandTimeout = 720; // 2 dakika
 
                 return await ExecuteNonQueryAsync(command);
             }

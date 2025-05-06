@@ -1,4 +1,5 @@
 ﻿@page "/"
+@inject NavigationManager NavigationManager
 <PageTitle>Welcome</PageTitle>
 
 <div class="main-content">
@@ -35,3 +36,8 @@
         </Items>
     </DxGridLayout>
 </div>
+
+@code
+{
+    protected override void OnInitialized() { NavigationManager.NavigateTo("/query"); }
+}

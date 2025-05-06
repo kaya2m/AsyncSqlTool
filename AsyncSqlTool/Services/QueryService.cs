@@ -10,6 +10,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Quartz;
 
 namespace AsyncSqlTool.Services
 {
@@ -125,7 +126,7 @@ namespace AsyncSqlTool.Services
 
                 // Bağlantının açık olduğundan emin ol
                 if (dbConnection.State != System.Data.ConnectionState.Open)
-                     dbConnection.Open();
+                    dbConnection.Open();
 
                 return (true, "Bağlantı başarılı!");
             }
@@ -139,7 +140,17 @@ namespace AsyncSqlTool.Services
         #endregion
 
         #region Sorgu Yönetimi
-
+        /// <summary>
+        /// Tüm kaydedilmiş sorguları getirir
+        /// </summary>
+        public async Task<List<SavedQuery>> GetSavedQueriesByDatabaseConnectionIdAsync(int id)
+        {
+            return await _dbContext.SavedQueries
+                .Include(q => q.DatabaseConnection)
+                .Where(x => x.DatabaseConnectionId == id)
+                .OrderBy(q => q.Name)
+                .ToListAsync();
+        }
         /// <summary>
         /// Tüm kaydedilmiş sorguları getirir
         /// </summary>
@@ -147,6 +158,7 @@ namespace AsyncSqlTool.Services
         {
             return await _dbContext.SavedQueries
                 .Include(q => q.DatabaseConnection)
+                .Where(x => x.IsScheduled != true)
                 .OrderBy(q => q.Name)
                 .ToListAsync();
         }
@@ -193,15 +205,36 @@ namespace AsyncSqlTool.Services
             existingQuery.IsScheduled = query.IsScheduled;
             existingQuery.ScheduleExpression = query.ScheduleExpression;
             existingQuery.DatabaseConnectionId = query.DatabaseConnectionId;
+            existingQuery.PreQuery = query.PreQuery;
+            existingQuery.PostQuery = query.PostQuery;
 
-            // Kolon eşleştirmelerini güncelle
-            if (query.ColumnMappings != null)
+            if (existingQuery.ColumnMappings != null && existingQuery.ColumnMappings.Any())
             {
-                // Mevcut eşleştirmeleri kaldır
-                _dbContext.RemoveRange(existingQuery.ColumnMappings);
+                var allColumns = _dbContext.QueryColumnMappings
+                     .Where(m => m.SavedQueryId == existingQuery.Id)
+                     .ToList();
+                _dbContext.RemoveRange(allColumns);
+            }
 
-                // Yeni eşleştirmeleri ekle
-                existingQuery.ColumnMappings = query.ColumnMappings;
+            if (query.ColumnMappings != null && query.ColumnMappings.Any())
+            {
+                existingQuery.ColumnMappings = query.ColumnMappings.Select(cm => new QueryColumnMapping
+                {
+                    SavedQueryId = existingQuery.Id,
+                    SourceColumnName = cm.SourceColumnName,
+                    TargetColumnName = cm.TargetColumnName,
+                    DataType = cm.DataType,
+                    Length = cm.Length,
+                    Precision = cm.Precision,
+                    Scale = cm.Scale,
+                    IsPrimaryKey = cm.IsPrimaryKey,
+                    AllowNull = cm.AllowNull,
+                    SortOrder = cm.SortOrder
+                }).ToList();
+            }
+            else
+            {
+                existingQuery.ColumnMappings = new List<QueryColumnMapping>();
             }
 
             await _dbContext.SaveChangesAsync();
@@ -293,12 +326,62 @@ namespace AsyncSqlTool.Services
                     return (false, "Sorgu bulunamadı.", 0);
                 }
 
-                return await ExecuteQueryAndSaveToSqlAsync(
+                if (!string.IsNullOrWhiteSpace(savedQuery.PreQuery))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Pre-sorgu çalıştırılıyor: {savedQuery.PreQuery}");
+
+                        using (var connection = new SqlConnection(_targetConnectionString))
+                        {
+                            await connection.OpenAsync();
+                            using (var command = new SqlCommand(savedQuery.PreQuery, connection))
+                            {
+                                await command.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        _logger.LogInformation("Pre-sorgu başarıyla tamamlandı.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Pre-sorgu çalıştırılırken hata oluştu.");
+                        return (false, $"Pre-sorgu hatası: {ex.Message}", 0);
+                    }
+                }
+
+                var result = await ExecuteQueryAndSaveToSqlAsync(
                     savedQuery.DatabaseConnectionId,
                     savedQuery.QueryText,
                     savedQuery.TargetTableName,
                     savedQuery.KeyColumn,
                     queryId);
+
+                if (result.success && !string.IsNullOrWhiteSpace(savedQuery.PostQuery))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Post-sorgu çalıştırılıyor: {savedQuery.PostQuery}");
+
+                        using (var connection = new SqlConnection(_targetConnectionString))
+                        {
+                            await connection.OpenAsync();
+                            using (var command = new SqlCommand(savedQuery.PostQuery, connection))
+                            {
+                                await command.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        _logger.LogInformation("Post-sorgu başarıyla tamamlandı.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Post-sorgu çalıştırılırken hata oluştu.");
+                        return (true, $"{result.message} (Post-sorgu hatası: {ex.Message})", result.recordCount);
+                    }
+                }
+
+                return result;
             }
             finally
             {
@@ -308,7 +391,6 @@ namespace AsyncSqlTool.Services
                 }
             }
         }
-        // QueryService.cs içindeki ExecuteQueryAndSaveToSqlAsync metodunun imzasını genişletmemiz gerekiyor:
 
         public async Task<(bool success, string message, int recordCount)> ExecuteQueryAndSaveToSqlAsync(
             int databaseConnectionId,
@@ -316,7 +398,7 @@ namespace AsyncSqlTool.Services
             string targetTableName,
             string keyColumn = null,
             int? savedQueryId = null,
-            List<QueryColumnMapping> columnMappings = null)  
+            List<QueryColumnMapping> columnMappings = null)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -380,7 +462,6 @@ namespace AsyncSqlTool.Services
                     }
                 }
 
-                // SQL Server'a kaydet (kolon eşleştirmelerini de parametre olarak geçir)
                 await SaveToSqlServerAsync(sourceData, targetTableName, keyColumn, savedQueryId, mappingsToUse);
 
                 log.Message = $"{sourceData.Count} kayıt başarıyla SQL Server'a aktarıldı.";
@@ -482,6 +563,10 @@ namespace AsyncSqlTool.Services
                             {
                                 clrType = typeof(decimal);
                             }
+                            else if (value is byte)
+                            {
+                                clrType = typeof(byte);
+                            }
                             else
                             {
                                 clrType = value.GetType();
@@ -501,7 +586,7 @@ namespace AsyncSqlTool.Services
                 }
                 else
                 {
-                    await UpdateTableColumnsIfNeededAsync(connection, tableName, columnDefinitions, columnMappings);
+                    //await UpdateTableColumnsIfNeededAsync(connection, tableName, columnDefinitions, columnMappings);
                 }
 
                 using (var transaction = connection.BeginTransaction())
@@ -576,6 +661,7 @@ namespace AsyncSqlTool.Services
                         {
                             using (var command = new SqlCommand($"TRUNCATE TABLE [{tableName}]", connection, transaction))
                             {
+                                command.CommandTimeout = 0;
                                 await command.ExecuteNonQueryAsync();
                             }
 
@@ -724,34 +810,33 @@ namespace AsyncSqlTool.Services
         /// Mevcut tablo kolonlarını kontrol eder ve gerekirse günceller
         /// </summary>
         private async Task UpdateTableColumnsIfNeededAsync(SqlConnection connection, string tableName,
-           List<(string Name, Type Type, bool IsKey, string SqlType)> columnDefinitions,
-           List<QueryColumnMapping> columnMappings = null)
+        List<(string Name, Type Type, bool IsKey, string SqlType)> columnDefinitions,
+        List<QueryColumnMapping> columnMappings = null)
         {
-            // Mevcut kolonları al (bu kısım değişmedi)
             var existingColumns = new Dictionary<string, (string DataType, int? Length, int? Precision, bool IsPrimaryKey)>();
 
             using (var command = new SqlCommand(
-                @"SELECT 
-            c.COLUMN_NAME,
-            c.DATA_TYPE,
-            c.CHARACTER_MAXIMUM_LENGTH,
-            c.NUMERIC_PRECISION,
-            c.NUMERIC_SCALE,
-            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
-        FROM 
-            INFORMATION_SCHEMA.COLUMNS c
-        LEFT JOIN (
-            SELECT ku.TABLE_CATALOG, ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
-            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
-                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-        ) pk 
-            ON c.TABLE_CATALOG = pk.TABLE_CATALOG 
-            AND c.TABLE_SCHEMA = pk.TABLE_SCHEMA 
-            AND c.TABLE_NAME = pk.TABLE_NAME 
-            AND c.COLUMN_NAME = pk.COLUMN_NAME
-        WHERE c.TABLE_NAME = @TableName",
+                        @"SELECT 
+                    c.COLUMN_NAME,
+                    c.DATA_TYPE,
+                    c.CHARACTER_MAXIMUM_LENGTH,
+                    c.NUMERIC_PRECISION,
+                    c.NUMERIC_SCALE,
+                    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
+                FROM 
+                    INFORMATION_SCHEMA.COLUMNS c
+                LEFT JOIN (
+                    SELECT ku.TABLE_CATALOG, ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                    JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                        ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
+                        AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                ) pk 
+                    ON c.TABLE_CATALOG = pk.TABLE_CATALOG 
+                    AND c.TABLE_SCHEMA = pk.TABLE_SCHEMA 
+                    AND c.TABLE_NAME = pk.TABLE_NAME 
+                    AND c.COLUMN_NAME = pk.COLUMN_NAME
+                WHERE c.TABLE_NAME = @TableName",
                 connection))
             {
                 command.Parameters.AddWithValue("@TableName", tableName);
@@ -779,10 +864,8 @@ namespace AsyncSqlTool.Services
 
             foreach (var column in columnDefinitions)
             {
-                // Kolon tipini doğrudan kullan
                 string sqlType = column.SqlType;
 
-                // Kolon yoksa ekle
                 if (!existingColumns.ContainsKey(column.Name))
                 {
                     var alterSql = $"ALTER TABLE [{tableName}] ADD [{column.Name}] {sqlType}";
@@ -791,44 +874,6 @@ namespace AsyncSqlTool.Services
                     {
                         await alterCommand.ExecuteNonQueryAsync();
                         _logger.LogInformation($"Kolon eklendi: {column.Name} ({sqlType})");
-                    }
-                }
-                else
-                {
-                    // Kolon tipini güncelle (gerekiyorsa)
-                    var existingColumn = existingColumns[column.Name];
-                    string existingSqlType = $"{existingColumn.DataType}";
-
-                    if (existingColumn.Length.HasValue)
-                        existingSqlType += $"({existingColumn.Length.Value})";
-                    else if (existingColumn.Precision.HasValue)
-                        existingSqlType += $"({existingColumn.Precision.Value})";
-
-                    // SQL tipi farklıysa güncelle
-                    if (!IsSameColumnType(existingSqlType, sqlType))
-                    {
-                        try
-                        {
-                            // Veri tipi değiştirilirken verileri kaybetmemek için ALTER COLUMN kullan
-                            var alterSql = $"ALTER TABLE [{tableName}] ALTER COLUMN [{column.Name}] {sqlType}";
-
-                            using (var alterCommand = new SqlCommand(alterSql, connection))
-                            {
-                                await alterCommand.ExecuteNonQueryAsync();
-                                _logger.LogInformation($"Kolon tipi güncellendi: {column.Name} ({existingSqlType} -> {sqlType})");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning($"Kolon tipi güncellenirken hata: {ex.Message}. Mevcut tip korunuyor: {column.Name}");
-                        }
-                    }
-
-                    // Eksik PK ekle veya kaldır
-                    bool primaryKeyNeedsUpdate = existingColumn.IsPrimaryKey != column.IsKey;
-                    if (primaryKeyNeedsUpdate)
-                    {
-                        await UpdatePrimaryKeyConstraintAsync(connection, tableName, column.Name, column.IsKey);
                     }
                 }
             }
@@ -1467,5 +1512,206 @@ namespace AsyncSqlTool.Services
 
         #endregion
         #endregion
+        /// <summary>
+        /// Zamanlanmış görev olarak kaydedilmiş bir sorguyu yerel bağlantıda çalıştırır
+        /// </summary>
+        public async Task<(bool success, string message)> ExecuteScheduledQueryAsync(int queryId)
+        {
+            bool alreadyRunning = false;
+
+            lock (_lockObject)
+            {
+                alreadyRunning = !_runningQueries.Add(queryId);
+            }
+
+            if (alreadyRunning)
+            {
+                _logger.LogWarning($"Zamanlanmış görev ID {queryId} zaten çalışıyor, ikinci bir çalışma engellendi.");
+                return (false, "Bu zamanlanmış görev zaten çalışıyor. Lütfen tamamlanmasını bekleyin.");
+            }
+
+            DateTime startTime = DateTime.Now;
+            var executionLog = new QueryExecutionLog
+            {
+                SavedQueryId = queryId,
+                ExecutionTime = startTime,
+                IsSuccess = false,
+                RecordsAffected = 0,
+                Message = "Zamanlanmış görev başlatıldı",
+            };
+
+            try
+            {
+                // Sorgu bilgilerini getir
+                var savedQuery = await GetSavedQueryByIdAsync(queryId);
+                if (savedQuery == null)
+                {
+                    _logger.LogError($"Zamanlanmış görev ID {queryId} bulunamadı");
+                    executionLog.Message = "Zamanlanmış görev bulunamadı.";
+                    await SaveExecutionLogAsync(executionLog);
+                    return (false, executionLog.Message);
+                }
+
+                _logger.LogInformation($"Zamanlanmış görev başlatılıyor. ID: {queryId}, Sorgu: {savedQuery.Name}");
+
+                // Pre-Query çalıştır
+                if (!string.IsNullOrWhiteSpace(savedQuery.PreQuery))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Zamanlanmış görev pre-sorgusu çalıştırılıyor: {savedQuery.PreQuery}");
+
+                        using (var connection = new SqlConnection(_targetConnectionString))
+                        {
+                            await connection.OpenAsync();
+                            using (var command = new SqlCommand(savedQuery.PreQuery, connection))
+                            {
+                                command.CommandTimeout = 9600;
+                                await command.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        _logger.LogInformation($"Zamanlanmış görev pre-sorgusu başarıyla tamamlandı. ID: {queryId}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Zamanlanmış görev pre-sorgusu çalıştırılırken hata oluştu. ID: {queryId}");
+                        executionLog.Message = $"Pre-sorgu hatası: {ex.Message}";
+                        executionLog.ErrorDetails = ex.ToString();
+                        await SaveExecutionLogAsync(executionLog);
+                        return (false, executionLog.Message);
+                    }
+                }
+
+                Stopwatch stopwatch = new Stopwatch();
+                stopwatch.Start();
+
+                try
+                {
+                    _logger.LogInformation($"Zamanlanmış görev sorgusu çalıştırılıyor. ID: {queryId}, Sorgu: {savedQuery.QueryText}");
+                    using (var connection = new SqlConnection(_targetConnectionString))
+                    {
+                        await connection.OpenAsync();
+                        var result = await ExecuteQueryAndSaveToSqlAsync(savedQuery.DatabaseConnectionId, savedQuery.QueryText, savedQuery.TargetTableName, null, savedQuery.Id, null);
+                        if (result.success == true)
+                        {
+
+                            executionLog.IsSuccess = true;
+
+                            stopwatch.Stop();
+                            executionLog.ExecutionDuration = stopwatch.Elapsed;
+
+
+                            if (!string.IsNullOrWhiteSpace(savedQuery.PostQuery))
+                            {
+                                try
+                                {
+                                    _logger.LogInformation($"Zamanlanmış görev post-sorgusu çalıştırılıyor: {savedQuery.PostQuery}");
+
+                                    using (var postConnection = new SqlConnection(_targetConnectionString))
+                                    {
+                                        await postConnection.OpenAsync();
+                                        using (var postCommand = new SqlCommand(savedQuery.PostQuery, postConnection))
+                                        {
+                                            postCommand.CommandTimeout = 9600;
+                                            await postCommand.ExecuteNonQueryAsync();
+                                        }
+                                    }
+
+                                    _logger.LogInformation($"Zamanlanmış görev post-sorgusu başarıyla tamamlandı. ID: {queryId}");
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, $"Zamanlanmış görev post-sorgusu çalıştırılırken hata oluştu. ID: {queryId}");
+                                    executionLog.Message += $" (Post-sorgu hatası: {ex.Message})";
+                                }
+                            }
+
+                            // Sonraki çalışma zamanını güncelle
+                            if (savedQuery.IsScheduled && !string.IsNullOrEmpty(savedQuery.ScheduleExpression))
+                            {
+                                await UpdateNextScheduledRunAsync(queryId, savedQuery.ScheduleExpression);
+                            }
+
+                            await SaveExecutionLogAsync(executionLog);
+                            return (true, executionLog.Message);
+                        }
+                        else
+                        {
+                            _logger.LogInformation($"Zamanlanmış görev sorgusu veri dönmedi. ID: {queryId}");
+                            executionLog.Message = "Zamanlanmış görev sorgusu veri dönmedi.";
+                            executionLog.IsSuccess = true;
+
+                            stopwatch.Stop();
+                            executionLog.ExecutionDuration = stopwatch.Elapsed;
+
+                            // Sonraki çalışma zamanını güncelle
+                            if (savedQuery.IsScheduled && !string.IsNullOrEmpty(savedQuery.ScheduleExpression))
+                            {
+                                await UpdateNextScheduledRunAsync(queryId, savedQuery.ScheduleExpression);
+                            }
+
+                            await SaveExecutionLogAsync(executionLog);
+                            return (true, executionLog.Message);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+                    executionLog.ExecutionDuration = stopwatch.Elapsed;
+
+                    _logger.LogError(ex, $"Zamanlanmış görev sorgusu çalıştırılırken hata oluştu. ID: {queryId}");
+                    executionLog.Message = $"Zamanlanmış görev çalıştırma hatası: {ex.Message}";
+                    executionLog.ErrorDetails = ex.ToString();
+
+                    await SaveExecutionLogAsync(executionLog);
+                    return (false, executionLog.Message);
+                }
+            }
+            finally
+            {
+                lock (_lockObject)
+                {
+                    _runningQueries.Remove(queryId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Bir sonraki çalışma zamanını hesaplar ve günceller
+        /// </summary>
+        private async Task UpdateNextScheduledRunAsync(int queryId, string cronExpression)
+        {
+            try
+            {
+                var cron = new CronExpression(cronExpression);
+                var nextRun = cron.GetNextValidTimeAfter(DateTimeOffset.Now)?.LocalDateTime;
+
+                if (nextRun.HasValue)
+                {
+                    var savedQuery = await _dbContext.SavedQueries.FindAsync(queryId);
+                    if (savedQuery != null)
+                    {
+                        savedQuery.LastExecuted = DateTime.Now;
+                        savedQuery.NextScheduledRun = nextRun.Value;
+                        await _dbContext.SaveChangesAsync();
+
+                        _logger.LogInformation($"Zamanlanmış görev sonraki çalışma zamanı güncellendi. ID: {queryId}, Sonraki çalışma: {nextRun.Value}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Sonraki çalışma zamanı güncellenirken hata oluştu. ID: {queryId}");
+            }
+        }
+        public async Task<List<QueryColumnMapping>> GetColumnMappingsForQueryAsync(int queryId)
+        {
+            return await _dbContext.QueryColumnMappings
+                .Where(m => m.SavedQueryId == queryId)
+                .OrderBy(m => m.SortOrder)
+                .ToListAsync();
+        }
     }
 }

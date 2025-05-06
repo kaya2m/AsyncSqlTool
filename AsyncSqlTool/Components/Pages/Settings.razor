@@ -1,0 +1,655 @@
+﻿@page "/settings"
+@rendermode InteractiveServer
+@using AsyncSqlTool.Models
+@using AsyncSqlTool.Services
+@using System.Timers
+@inject QuerySchedulerClient SchedulerService
+@inject QueryService QueryService
+@inject IJSRuntime JSRuntime
+
+<h3>Ayarlar</h3>
+
+<DxTabs @bind-ActiveTabIndex="@activeTabIndex">
+    <DxTabPage Text="Zamanlanmış Görevler">
+        <TabTemplate>
+            <div class="scheduler-container">
+                <h4>Zamanlanmış Sorgular</h4>
+
+                <div class="mb-3">
+                    <DxButton Text="Zamanlanmış Görevleri Yenile"
+                              RenderStyle="ButtonRenderStyle.Primary"
+                              Click="@RefreshScheduledQueries" />
+
+                    <DxButton Text="Yeni Görev Oluştur"
+                              RenderStyle="ButtonRenderStyle.Success"
+                              Click="@(() => OpenScheduleDialog(null))" />
+                </div>
+
+                @if (isLoading)
+                {
+                    <div class="text-center p-3">
+                        <div class="mt-2">Zamanlanmış görevler yükleniyor...</div>
+                    </div>
+                }
+                else if (scheduledQueries == null || !scheduledQueries.Any())
+                {
+                    <div class="alert alert-info">
+                        Henüz zamanlanmış sorgu bulunmuyor. "Yeni Görev Oluştur" düğmesine tıklayarak zamanlanmış bir görev oluşturabilirsiniz.
+                    </div>
+                }
+                else
+                {
+                    <DxGrid Data="@scheduledQueries"
+                            ShowFilterRow="true"
+                            ShowPager="true"
+                            PageSize="10"
+                            CssClass="scheduled-queries-grid">
+                        <Columns>
+                            <DxGridDataColumn FieldName="QueryName" Caption="Sorgu Adı" />
+                            <DxGridDataColumn FieldName="TargetTable" Caption="Hedef Tablo" />
+                            <DxGridDataColumn FieldName="CronExpression" Caption="Zamanlama (Cron)" />
+                            <DxGridDataColumn FieldName="NextRun" Caption="Sonraki Çalışma">
+                                <CellDisplayTemplate>
+                                    @{
+                                        var query = (context.DataItem as ScheduledQueryInfo);
+                                        @(query?.NextRun.HasValue == true ? query.NextRun.Value.ToString("dd.MM.yyyy HH:mm:ss") : "-")
+                                    }
+                                </CellDisplayTemplate>
+                            </DxGridDataColumn>
+
+                            <DxGridDataColumn Caption="İşlemler" Width="250px">
+                                <CellDisplayTemplate>
+                                    @{
+                                        var query = (context.DataItem as ScheduledQueryInfo);
+                                        if (query != null)
+                                        {
+                                            <DxButton Text="Düzenle"
+                                                      RenderStyle="ButtonRenderStyle.Primary"
+                                                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                                                      Click="@(() => OpenScheduleDialog(query))"
+                                                      CssClass="btn-sm me-1" />
+
+                                            <DxButton Text="Çalıştır"
+                                                      RenderStyle="ButtonRenderStyle.Success"
+                                                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                                                      Click="@(() => ExecuteQueryManually(query.QueryId))"
+                                                      CssClass="btn-sm me-1" />
+
+                                            <DxButton Text="Kaldır"
+                                                      RenderStyle="ButtonRenderStyle.Danger"
+                                                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                                                      Click="@(() => RemoveSchedule(query))"
+                                                      CssClass="btn-sm" />
+                                        }
+                                    }
+                                </CellDisplayTemplate>
+                            </DxGridDataColumn>
+                        </Columns>
+                    </DxGrid>
+                }
+            </div>
+        </TabTemplate>
+    </DxTabPage>
+</DxTabs>
+
+<!-- Zamanlama Diyaloğu -->
+<DxPopup HeaderText="@scheduleDialogTitle"
+         @bind-Visible="@isScheduleDialogVisible"
+         Width="600px"
+         ShowFooter="true"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false">
+    <HeaderContentTemplate>
+        <h5 class="modal-title">@scheduleDialogTitle</h5>
+    </HeaderContentTemplate>
+    <Content>
+        @if (selectedQuery != null)
+        {
+            <div class="mb-3">
+                <label>Sorgu Seçimi</label>
+                <DxComboBox Data="@availableQueries"
+                            @bind-Value="@selectedQuery.QueryId"
+                            TextFieldName="Name"
+                            ValueFieldName="Id"
+                            CssClass="w-100" />
+            </div>
+
+            <div class="mb-3">
+                <label>Cron İfadesi</label>
+                <div class="input-group">
+                    <DxTextBox @bind-Text="@selectedQuery.CronExpression" CssClass="w-100" />
+                    <button class="btn btn-outline-secondary" @onclick="OpenCronHelper">
+                        <span class="oi oi-wrench"></span> Yardımcı
+                    </button>
+                </div>
+                <small class="form-text text-muted">
+                    Örnek: "0 0 8 * * ?" Her gün 08:00'de çalışır. <a href="#" @onclick="ShowCronHelp">Daha fazla bilgi</a>
+                </small>
+            </div>
+
+            @if (!string.IsNullOrEmpty(selectedQuery.CronExpression))
+            {
+                <div class="mb-3">
+                    <label>Sonraki Çalışma Zamanları</label>
+                    <ul class="list-group">
+                        @foreach (var time in GetNextExecutionTimes(selectedQuery.CronExpression))
+                        {
+                            <li class="list-group-item">@time.ToString("dd.MM.yyyy HH:mm:ss")</li>
+                        }
+                    </ul>
+                </div>
+            }
+        }
+    </Content>
+    <FooterContentTemplate>
+        <DxButton RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Kaydet"
+                  Click="@SaveSchedule" />
+        <DxButton RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="İptal"
+                  Click="@CloseScheduleDialog" />
+    </FooterContentTemplate>
+</DxPopup>
+
+<!-- Cron Yardımcısı Diyaloğu -->
+<DxPopup HeaderText="Cron İfadesi Oluşturucu"
+         @bind-Visible="@isCronHelperVisible"
+         Width="800px"
+         ShowFooter="true"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false">
+    <Content>
+        <div class="cron-helper">
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label>Saat</label>
+                        <DxSpinEdit Value="@selectedHour" ValueChanged="@((int val) => HourChanged(val))" Min="0" Max="23" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label>Dakika</label>
+                        <DxSpinEdit Value="@selectedMinute" ValueChanged="@((int val) => MinuteChanged(val))" Min="0" Max="59" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label>Sıklık</label>
+                        <DxComboBox Data="@frequencyOptions"
+                                    Value="@selectedFrequency"
+                                    ValueChanged="@((string val) => FrequencyChanged(val))"
+                                    TextFieldName="Text"
+                                    ValueFieldName="Value" />
+                    </div>
+
+                    @if (selectedFrequency == "WEEKLY")
+                    {
+                        <div class="mb-3">
+                            <label>Haftanın Günleri</label>
+                            <div class="d-flex flex-wrap">
+                                @foreach (var day in weekDays)
+                                {
+                                    <div class="form-check me-3">
+                                        <DxCheckBox Checked="@day.Selected"
+                                                    CheckedChanged="@((bool val) => WeekdaySelectionChanged(day, val))"
+                                                    Text="@day.Name" />
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (selectedFrequency == "MONTHLY")
+                    {
+                        <div class="mb-3">
+                            <label>Ayın Günü</label>
+                            <DxSpinEdit Value="@selectedMonthDay"
+                                        ValueChanged="@((int val) => MonthDayChanged(val))"
+                                        Min="1"
+                                        Max="31" />
+                        </div>
+                    }
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Cron İfadesi</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="input-group mb-3">
+                                <DxTextBox @bind-Text="@cronExpression" ReadOnly="true" />
+                                <button class="btn btn-outline-secondary" @onclick="CopyCronExpression">
+                                    <span class="oi oi-clipboard"></span> Kopyala
+                                </button>
+                            </div>
+
+                            <h6>Sonraki Çalışma Zamanları:</h6>
+                            <ul class="list-group">
+                                @foreach (var time in nextExecutionTimes)
+                                {
+                                    <li class="list-group-item">@time.ToString("dd.MM.yyyy HH:mm:ss")</li>
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Content>
+    <FooterContentTemplate>
+        <DxButton RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Bu İfadeyi Kullan"
+                  Click="@ApplyCronExpressionAndClose" />
+        <DxButton RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="İptal"
+                  Click="@CloseCronHelper" />
+    </FooterContentTemplate>
+</DxPopup>
+
+<style>
+    .scheduler-container {
+        margin-top: 20px;
+    }
+
+    .scheduled-queries-grid {
+        margin-top: 20px;
+    }
+
+    .cron-helper {
+        margin-top: 10px;
+    }
+</style>
+
+@code {
+    private List<ScheduledQueryInfo> scheduledQueries;
+    private List<SavedQuery> availableQueries;
+    private bool isLoading = false;
+    private bool isScheduleDialogVisible = false;
+    private bool isCronHelperVisible = false;
+    private ScheduledQueryInfo selectedQuery;
+    private string scheduleDialogTitle;
+    private int activeTabIndex = 0;
+
+    // Cron yardımcısı
+    private int selectedHour = 0;
+    private int selectedMinute = 0;
+    private string selectedFrequency = "DAILY";
+    private int selectedMonthDay = 1;
+    private string cronExpression = "0 0 0 * * ?";
+    private List<DateTime> nextExecutionTimes = new List<DateTime>();
+
+    private List<FrequencyOption> frequencyOptions = new List<FrequencyOption>
+    {
+        new FrequencyOption { Text = "Her Saat", Value = "HOURLY" },
+        new FrequencyOption { Text = "Her Gün", Value = "DAILY" },
+        new FrequencyOption { Text = "Her Hafta", Value = "WEEKLY" },
+        new FrequencyOption { Text = "Her Ay", Value = "MONTHLY" }
+    };
+
+    private List<WeekDay> weekDays = new List<WeekDay>
+    {
+        new WeekDay { Name = "Pazartesi", Value = "MON", Selected = false },
+        new WeekDay { Name = "Salı", Value = "TUE", Selected = false },
+        new WeekDay { Name = "Çarşamba", Value = "WED", Selected = false },
+        new WeekDay { Name = "Perşembe", Value = "THU", Selected = false },
+        new WeekDay { Name = "Cuma", Value = "FRI", Selected = false },
+        new WeekDay { Name = "Cumartesi", Value = "SAT", Selected = false },
+        new WeekDay { Name = "Pazar", Value = "SUN", Selected = false }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        await UpdateCronExpression();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+
+        try
+        {
+            scheduledQueries = await SchedulerService.GetScheduledQueries();
+            availableQueries = await QueryService.GetAllSavedQueriesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Hata işleme
+            await JSRuntime.InvokeVoidAsync("alert", $"Veri yüklenirken hata oluştu: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshScheduledQueries()
+    {
+        await LoadData();
+    }
+
+    private void OpenScheduleDialog(ScheduledQueryInfo query)
+    {
+        if (query == null)
+        {
+            // Yeni zamanlama
+            scheduleDialogTitle = "Yeni Zamanlanmış Görev";
+            selectedQuery = new ScheduledQueryInfo
+                {
+                    QueryId = availableQueries.FirstOrDefault()?.Id ?? 0,
+                    CronExpression = "0 0 8 * * ?" // Varsayılan: Her gün 08:00
+                };
+        }
+        else
+        {
+            // Mevcut zamanlamayı düzenle
+            scheduleDialogTitle = "Zamanlanmış Görevi Düzenle";
+            selectedQuery = new ScheduledQueryInfo
+                {
+                    QueryId = query.QueryId,
+                    QueryName = query.QueryName,
+                    CronExpression = query.CronExpression,
+                    NextRun = query.NextRun,
+                    Description = query.Description,
+                    TargetTable = query.TargetTable
+                };
+        }
+
+        isScheduleDialogVisible = true;
+    }
+
+    private void CloseScheduleDialog()
+    {
+        isScheduleDialogVisible = false;
+    }
+
+    private async Task SaveSchedule()
+    {
+        if (selectedQuery == null || string.IsNullOrWhiteSpace(selectedQuery.CronExpression))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Geçerli bir cron ifadesi girmelisiniz.");
+            return;
+        }
+
+        try
+        {
+            bool result = await SchedulerService.ScheduleQuery(
+                selectedQuery.QueryId,
+                selectedQuery.CronExpression);
+
+            if (result)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Zamanlanmış görev kaydedildi.");
+                isScheduleDialogVisible = false;
+                await LoadData();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Zamanlı görev kaydedilirken bir hata oluştu.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Hata: {ex.Message}");
+        }
+    }
+
+    private async Task RemoveSchedule(ScheduledQueryInfo query)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", $"'{query.QueryName}' sorgusunun zamanlamasını kaldırmak istediğinizden emin misiniz?"))
+        {
+            try
+            {
+                bool result = await SchedulerService.UnscheduleQuery(query.QueryId);
+                if (result)
+                {
+                    await LoadData();
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Zamanlama kaldırılırken bir hata oluştu.");
+                }
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Hata: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task ExecuteQueryManually(int queryId)
+    {
+        try
+        {
+            bool result = await SchedulerService.ExecuteQueryManually(queryId);
+
+            if (result)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Sorgu çalıştırılıyor. Sonuçları loglardan kontrol edebilirsiniz.");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Sorgu çalıştırılırken bir hata oluştu.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Hata: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateCronExpression()
+    {
+        cronExpression = BuildCronExpression();
+        nextExecutionTimes = SchedulerService.CalculateNextExecutionTimes(cronExpression);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Event handlers for control value changes
+    private async Task HourChanged(int value)
+    {
+        selectedHour = value;
+        await UpdateCronExpression();
+    }
+
+    private async Task MinuteChanged(int value)
+    {
+        selectedMinute = value;
+        await UpdateCronExpression();
+    }
+
+    private async Task FrequencyChanged(string value)
+    {
+        selectedFrequency = value;
+        await UpdateCronExpression();
+    }
+
+    private async Task WeekdaySelectionChanged(WeekDay day, bool selected)
+    {
+        day.Selected = selected;
+        await UpdateCronExpression();
+    }
+
+    private async Task MonthDayChanged(int value)
+    {
+        selectedMonthDay = value;
+        await UpdateCronExpression();
+    }
+
+    private string BuildCronExpression()
+    {
+        string seconds = "0";
+        string minutes = selectedMinute.ToString();
+        string hours = selectedHour.ToString();
+        string dayOfMonth = "*";
+        string month = "*";
+        string dayOfWeek = "?";
+
+        switch (selectedFrequency)
+        {
+            case "HOURLY":
+                hours = "*";
+                break;
+
+            case "DAILY":
+                // Her gün için değer zaten ayarlandı
+                break;
+
+            case "WEEKLY":
+                dayOfMonth = "?";
+                var selectedDays = weekDays.Where(d => d.Selected).Select(d => d.Value).ToList();
+                if (selectedDays.Any())
+                {
+                    dayOfWeek = string.Join(",", selectedDays);
+                }
+                else
+                {
+                    dayOfWeek = "?";
+                }
+                break;
+
+            case "MONTHLY":
+                dayOfMonth = selectedMonthDay.ToString();
+                break;
+        }
+
+        return $"{seconds} {minutes} {hours} {dayOfMonth} {month} {dayOfWeek}";
+    }
+
+    private List<DateTime> GetNextExecutionTimes(string cronExp)
+    {
+        return SchedulerService.CalculateNextExecutionTimes(cronExp);
+    }
+
+    private void OpenCronHelper()
+    {
+        // Mevcut Cron ifadesini ayrıştırayım ve yardımcı için değerleri ayarlayayım
+        ParseCronExpression(selectedQuery.CronExpression);
+
+        // Cron yardımcısı popupını aç
+        isCronHelperVisible = true;
+    }
+
+    private void CloseCronHelper()
+    {
+        isCronHelperVisible = false;
+    }
+
+    private void ApplyCronExpressionAndClose()
+    {
+        if (selectedQuery != null && !string.IsNullOrEmpty(cronExpression))
+        {
+            selectedQuery.CronExpression = cronExpression;
+        }
+        isCronHelperVisible = false;
+    }
+
+    private void ParseCronExpression(string cronExp)
+    {
+        try
+        {
+            var parts = cronExp.Split(' ');
+
+            if (parts.Length >= 6)
+            {
+                // Dakika ve saat değerlerini al
+                if (int.TryParse(parts[1], out int min))
+                {
+                    selectedMinute = min;
+                }
+
+                if (int.TryParse(parts[2], out int hour))
+                {
+                    selectedHour = hour;
+                }
+
+                // Frekans türünü belirle
+                if (parts[2] == "*")
+                {
+                    selectedFrequency = "HOURLY";
+                }
+                else if (parts[4] == "*" && parts[5] == "?")
+                {
+                    selectedFrequency = "DAILY";
+                }
+                else if (parts[3] == "?" && parts[5] != "?")
+                {
+                    selectedFrequency = "WEEKLY";
+
+                    // Hafta günlerini temizle
+                    foreach (var day in weekDays)
+                    {
+                        day.Selected = false;
+                    }
+
+                    // Seçili günleri işaretle
+                    var days = parts[5].Split(',');
+                    foreach (var day in days)
+                    {
+                        var weekDay = weekDays.FirstOrDefault(d => d.Value == day);
+                        if (weekDay != null)
+                        {
+                            weekDay.Selected = true;
+                        }
+                    }
+                }
+                else if (parts[3] != "*" && parts[3] != "?")
+                {
+                    selectedFrequency = "MONTHLY";
+                    if (int.TryParse(parts[3], out int monthDay))
+                    {
+                        selectedMonthDay = monthDay;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Ayrıştırma hatası durumunda varsayılan değerleri kullan
+            selectedHour = 8;
+            selectedMinute = 0;
+            selectedFrequency = "DAILY";
+        }
+    }
+
+    private async Task ShowCronHelp()
+    {
+        await JSRuntime.InvokeVoidAsync("alert",
+                                            @"Cron ifadeleri için kılavuz:
+
+                    Saniye Dakika Saat GünAy Ay HaftanınGünü Yıl
+                      0      0     8    *   *       ?      *
+
+                    * : Her değer anlamına gelir
+                    ? : Belirli değeri yok anlamına gelir
+                    , : Değer listesi (örn: 1,2,3)
+                    - : Aralık (örn: 1-5)
+                    / : Artış (örn: 0/15 -> 0,15,30,45)
+
+                    Örnekler:
+                    0 0 12 * * ? : Her gün öğlen 12:00'de
+                    0 0/30 * * * ? : Her yarım saatte bir
+                    0 0 8 ? * MON-FRI : Hafta içi her gün 08:00'de
+                    0 0 10 15 * ? : Her ayın 15'inde saat 10:00'da");
+    }
+
+    private async Task CopyCronExpression()
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", cronExpression);
+        await JSRuntime.InvokeVoidAsync("alert", "Cron ifadesi panoya kopyalandı!");
+    }
+
+    public class FrequencyOption
+    {
+        public string Text { get; set; }
+        public string Value { get; set; }
+    }
+
+    public class WeekDay
+    {
+        public string Name { get; set; }
+        public string Value { get; set; }
+        public bool Selected { get; set; }
+    }
+}

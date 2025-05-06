@@ -33,6 +33,7 @@ namespace AsyncSqlTool.Models
 
         public DateTime? UpdatedAt { get; set; }
 
+
         // İlişkiler
         public virtual ICollection<SavedQuery> SavedQueries { get; set; }
     }

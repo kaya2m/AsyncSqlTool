@@ -18,6 +18,9 @@
 	  <PackageReference Include="MySql.Data" Version="9.2.0" />
 	  <PackageReference Include="Npgsql" Version="9.0.3" />
 	  <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.8.0" />
+	  <PackageReference Include="Quartz" Version="3.6.2" />
+	  <PackageReference Include="Quartz.Extensions.Hosting" Version="3.6.2" />
+	  <PackageReference Include="Quartz.Extensions.DependencyInjection" Version="3.6.2" />
   </ItemGroup>
 	<ItemGroup>
 		<Reference Include="Sap.Data.Hana.Core.v2.1">

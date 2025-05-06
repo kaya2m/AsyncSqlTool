@@ -3,52 +3,63 @@ using AsyncSqlTool.Data;
 using AsyncSqlTool.Services;
 using Microsoft.EntityFrameworkCore;
 using SapConnection.Components.Services.Interface;
+using Quartz;
 
 var builder = WebApplication.CreateBuilder(args);
-// Add services to the container.
+
+// 1. Blazor ve MVC Bileşenlerini Kaydet
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-
+builder.Services.AddMvc();
+builder.Services.AddRazorPages();
+builder.Services.AddServerSideBlazor();
 builder.Services.AddDevExpressBlazor(options =>
 {
     options.BootstrapVersion = DevExpress.Blazor.BootstrapVersion.v5;
 });
 
-builder.Services.AddMvc();
-builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
-
-// Entity Framework DbContext
+// 2. Veritabanı Bağlantıları ve Servisler
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-// HANA DB bağlantısı - Eski servis (geriye uyumluluk için)
 builder.Services.AddScoped<IHanaDbContext, HanaDbContext>();
-
-// Yeni veritabanı servisleri
 builder.Services.AddScoped<IDatabaseConnectionFactory, DatabaseConnectionFactory>();
-builder.Services.AddScoped<QueryService>();
 
-// Eski SQL Server servisi (geriye uyumluluk için)
+// 3. Uygulama Servisleri
+builder.Services.AddScoped<QueryService>();
 builder.Services.AddScoped<SapDynamicQueryService>();
 
-// DevExpress Blazor
+// 4. Quartz Scheduler ve Bağımlı Servisler
+builder.Services.AddQuartz(q =>
+{
+    q.UseMicrosoftDependencyInjectionJobFactory();
+});
+
+builder.Services.AddQuartzHostedService(options =>
+{
+    options.WaitForJobsToComplete = true;
+});
+
+// Quartz ile ilgili servisler
+builder.Services.AddScoped<QueryExecutionJob>();
+builder.Services.AddHostedService<QuerySchedulerHostedService>();
+builder.Services.AddScoped<QuerySchedulerClient>(); 
+
+// Uygulama Oluşturma
 var app = builder.Build();
 
+// Middleware Yapılandırması
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
 }
-
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseAntiforgery();
-
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Veritabanını oluştur (geliştirme için)
+// Geliştirme Ortamı Ayarları
 if (app.Environment.IsDevelopment())
 {
     using (var scope = app.Services.CreateScope())
