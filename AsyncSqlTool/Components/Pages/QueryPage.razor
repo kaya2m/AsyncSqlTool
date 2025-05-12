@@ -7,6 +7,7 @@
 @using DevExpress.Blazor.Grid
 @inject QueryService QueryService
 @inject ILogger<QueryPage> Logger
+
 <style>
     .main-container {
         max-width: 1400px;
@@ -46,7 +47,7 @@
         gap: 8px;
     }
 
-    .action-panel {
+    .action-buttons {
         margin-top: 15px;
         display: flex;
         gap: 10px;
@@ -310,30 +311,12 @@
         <div class="card-body">
             <div class="row">
                 <div class="col-md-8">
-                    <div class="row">
-                        <div class="col-md-12">
-                            @if (!string.IsNullOrEmpty(CurrentQueryName))
-                            {
-                                <div class="d-flex align-items-center">
-                                    <span class="status-badge info">
-                                        <h5>Seçili Sorgu:   <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
-                                    </span>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="section-title">Sorgu Yapılandırması</div>
-                            }
-                        </div>
-                    </div>
-
                     <div class="mb-3">
                         <DxMemo @bind-Text="@PreQuery"
                                 Label="Ön Sorgu (SQL Server)"
                                 CssClass="w-100"
                                 Rows="3"
-                                NullText="SQL Server'da ana sorgudan önce çalıştırılacak sorgu (opsiyonel)..."
-                                 />
+                                NullText="SQL Server'da ana sorgudan önce çalıştırılacak sorgu (opsiyonel)..." />
                     </div>
 
                     <DxMemo @bind-Text="@QueryText"
@@ -349,8 +332,7 @@
                                 Label="Son Sorgu (SQL Server)"
                                 CssClass="w-100"
                                 Rows="3"
-                                NullText="SQL Server'da ana sorgudan sonra çalıştırılacak sorgu (opsiyonel)..."
-                                 />
+                                NullText="SQL Server'da ana sorgudan sonra çalıştırılacak sorgu (opsiyonel)..." />
                     </div>
                 </div>
 
@@ -366,60 +348,24 @@
                                    InputId="targetTable"
                                    CssClass="w-100" />
                     </div>
-
-                    <div class="mb-3">
-                        <label for="targetColumns" class="demo-text cw-320 mb-1">
-                            Kolonlar
-                        </label>
-                        <DxTextBox @bind-Text="@SelectedColumns"
-                                   NullText="Örn: CardCode, ItemName, Price"
-                                   CssClass="w-100"
-                                   InputId="targetColumns" />
-                        <p class="form-text">
-                            <b>Seçilecek Kolonlar (virgülle ayırın, boş bırakırsanız tümü gelir)</b>
-                        </p>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="targetPK" class="demo-text cw-320 mb-1">
-                            Anahtar Kolon (Opsiyonel)
-                        </label>
-                        <DxTextBox @bind-Text="@KeyColumn"
-                                   NullText="Örn: CardCode, ItemCode"
-                                   CssClass="w-100"
-                                   InputId="targetPK" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="count" class="demo-text cw-320 mb-1">
-                            Maksimum Satır Sayısı (Opsiyonel)
-                        </label>
-                        <DxSpinEdit @bind-Value="@RowLimit"
-                                    MinValue="1"
-                                    MaxValue="10000"
-                                    CssClass="w-100"
-                                    InputId="count" />
-                    </div>
-
                     @if (!string.IsNullOrEmpty(TargetTableName))
                     {
-                        <div class="table-operations">
-                            <span class="me-2">Tablo İşlemleri:</span>
-                            <DxButton Text="Görüntüle"
+                        <div class="table-operations mb-2">
+                            <DxButton Text="Görüntüle (Select *)"
                                       IconCssClass="fa fa-table"
-                                      RenderStyle="ButtonRenderStyle.Light"
+                                      RenderStyle="ButtonRenderStyle.Primary"
                                       CssClass="btn-sm"
                                       Click="@ViewTable"
                                       Enabled="@(!IsProcessing)" />
 
-                            <DxButton Text="Temizle"
+                            <DxButton Text="Temizle (Truncate)"
                                       IconCssClass="fa fa-eraser"
                                       RenderStyle="ButtonRenderStyle.Warning"
                                       CssClass="btn-sm"
                                       Click="@(() => ConfirmTableOperation("truncate"))"
                                       Enabled="@(!IsProcessing)" />
 
-                            <DxButton Text="Sil"
+                            <DxButton Text="Sil (Drop)"
                                       IconCssClass="fa fa-trash"
                                       RenderStyle="ButtonRenderStyle.Danger"
                                       CssClass="btn-sm"
@@ -427,21 +373,52 @@
                                       Enabled="@(!IsProcessing)" />
                         </div>
                     }
+
+
+                    <div class="section-title mt-4">Sorgu İşlemleri</div>
+                    <div class="row">
+
+                        <div class="col-md-12">
+
+                            @if (!string.IsNullOrEmpty(CurrentQueryName))
+
+                            {
+                                <div class="d-flex align-items-center justify-content-between">
+
+
+                                        <span class="status-badge info">
+
+                                            <h5 class="mb-0">Seçili Sorgu: <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
+
+                                        </span>
+                                    
+                                </div>
+                            }
+                        </div>
+
+                    </div>
+                    
+                    <!-- Moved action buttons here -->
+                    <div class="action-buttons mt-4">
+                        <DxButton Text="Sorguyu Önizle"
+                                  IconCssClass="fa fa-eye"
+                                  RenderStyle="ButtonRenderStyle.Info"
+                                  Click="@PreviewQuery"
+                                  Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText))" />
+
+                        <DxButton Text="Sonucu Tabloya Aktar"
+                                  IconCssClass="fa fa-play"
+                                  RenderStyle="ButtonRenderStyle.Success"
+                                  Click="@ExecuteQuery"
+                                  Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText) && !string.IsNullOrEmpty(TargetTableName))" />
+                        <DxButton Text="Seçili sorguyu Sil"
+                                  IconCssClass="fa fa-trash"
+                                  RenderStyle="ButtonRenderStyle.Danger"
+                                  CssClass="btn-sm"
+                                  Click="@(() => ConfirmDeleteCurrentQuery())"
+                                  Enabled="@(!IsProcessing)" />
+                    </div>
                 </div>
-            </div>
-
-            <div class="action-panel">
-                <DxButton Text="Sorgu Sonucunu Önizle"
-                          IconCssClass="fa fa-eye"
-                          RenderStyle="ButtonRenderStyle.Info"
-                          Click="@PreviewQuery"
-                          Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText))" />
-
-                <DxButton Text="Sorguyu Çalıştır ve SQL Server'a Kaydet"
-                          IconCssClass="fa fa-play"
-                          RenderStyle="ButtonRenderStyle.Primary"
-                          Click="@ExecuteQuery"
-                          Enabled="@(!IsProcessing && !string.IsNullOrEmpty(QueryText) && !string.IsNullOrEmpty(TargetTableName))" />
             </div>
         </div>
     </div>
@@ -506,7 +483,7 @@
                         {
                             @foreach (var key in ((IDictionary<string, object>)GridData[0]).Keys)
                             {
-                                <DxGridDataColumn FieldName="@key" Caption="@key" Width="220" />
+                                <DxGridDataColumn FieldName="@key" Caption="@key" Width="150" />
                             }
                         }
                     </Columns>
@@ -520,8 +497,8 @@
 <DxPopup HeaderText="Kayıtlı Sorgular"
          @bind-Visible="@IsSavedQueriesPopupVisible"
          ShowFooter="true"
-         Width="1200px"
-         MaxHeight="90vh"
+         Width="960px"
+         MaxHeight="80vh"
          CloseOnOutsideClick="true"
          CloseOnEscape="true">
     <HeaderTemplate>
@@ -532,7 +509,6 @@
             <DxGrid Data="@SavedQueries"
                     @ref="SavedQueriesGrid"
                     ShowFilterRow="true"
-                    ShowSearchBox="true"
                     KeyFieldName="Id"
                     PageSize="10"
                     SelectionMode="GridSelectionMode.Single"
@@ -540,10 +516,10 @@
                     FocusedRowChanged="@Grid_FocusedRowChanged">
                 <Columns>
                     <DxGridSelectionColumn Width="50px" />
-                    <DxGridDataColumn FieldName="Name" Caption="Sorgu Adı" Width="200px" />
-                    <DxGridDataColumn FieldName="DatabaseConnection.Name" Caption="Veritabanı" Width="150px" />
-                    <DxGridDataColumn FieldName="TargetTableName" Caption="Hedef Tablo" Width="150px" />
-                    <DxGridDataColumn FieldName="IsScheduled" Caption="Zamanlanmış" Width="100px">
+                    <DxGridDataColumn FieldName="Name" Caption="Sorgu Adı" Width="300px" />
+                    <DxGridDataColumn FieldName="DatabaseConnection.Name" Caption="Veritabanı" Width="200px" />
+                    <DxGridDataColumn FieldName="TargetTableName" Caption="Hedef Tablo" Width="250px" />
+                    <DxGridDataColumn FieldName="IsScheduled" Caption="Zamanlanmış Mı" Width="150px">
                         <CellDisplayTemplate Context="cellContext">
                             @{
                                 var query = (cellContext.DataItem as SavedQuery);
@@ -626,24 +602,20 @@
                 <DxTextBox @bind-Text="@SaveQueryName"
                            Label="Sorgu Adı"
                            CssClass="w-100"
-                           NullText="Sorgu adı girin..."
-                            />
+                           NullText="Sorgu adı girin..." />
             </div>
 
             <div class="mb-3">
                 <DxTextBox @bind-Text="@SaveTableName"
                            Label="Hedef Tablo Adı"
                            CssClass="w-100"
-                           NullText="SQL Server tablo adı..."
-                            />
+                           NullText="SQL Server tablo adı..." />
             </div>
 
             <div class="mb-3">
                 <DxTextBox @bind-Text="@SaveKeyColumn"
-                          
                            CssClass="w-100"
-                           NullText="Örn: CardCode, ItemCode..."
-                            />
+                           NullText="Örn: CardCode, ItemCode..." />
             </div>
 
             <div class="mb-3">
@@ -651,8 +623,7 @@
                         Label="Açıklama"
                         CssClass="w-100"
                         Rows="2"
-                        NullText="Açıklama girin (opsiyonel)..."
-                         />
+                        NullText="Açıklama girin (opsiyonel)..." />
             </div>
 
             <div class="mb-3 form-check">
@@ -883,7 +854,6 @@
         </div>
     </FooterTemplate>
 </DxPopup>
-
 @code {
     private string QueryText { get; set; } = string.Empty;
     private string TargetTableName { get; set; } = string.Empty;
@@ -1308,7 +1278,6 @@
                 ResultMessage = $"\"{TargetTableName}\" tablosu başarıyla silindi (DROP).";
                 IsSuccess = true;
 
-                // Tabloyu silince, mevcut veriler de temizlenmeli
                 GridData = new List<dynamic>();
             }
         }
@@ -1338,8 +1307,7 @@
             IsProcessing = true;
             ResultMessage = string.Empty;
 
-            // Kolon seçimi için string hazırla
-            string columnsToSelect = "*"; // Varsayılan olarak tüm kolonları seç
+            string columnsToSelect = "*";
             if (!string.IsNullOrWhiteSpace(SelectedColumns))
             {
                 columnsToSelect = SelectedColumns.Trim();
@@ -1349,11 +1317,10 @@
                 TargetTableName,
                 RowLimit,
                 columnsToSelect,
-                null); // whereClause null olarak gönderiliyor
+                null); 
 
             if (data.Count > 0)
             {
-                // Dinamik veriyi Grid için ExpandoObject listesine dönüştür
                 var gridData = new List<dynamic>();
 
                 foreach (var row in data)
@@ -1802,7 +1769,7 @@
             }
 
             await LoadSavedQueries();
-            IsDeleteConfirmationVisible = false;    
+            IsDeleteConfirmationVisible = false;
             QueryToDelete = null;
             SelectedSavedQueryObj = null;
             IsSavedQueriesPopupVisible = false;
@@ -1833,5 +1800,18 @@
     {
         FocusedRowVisibleIndex = args.VisibleIndex;
         UpdateEditItemsEnabled(true);
+    }
+    private void ConfirmDeleteCurrentQuery()
+    {
+        if (string.IsNullOrEmpty(CurrentQueryName))
+            return;
+
+        var currentQuery = SavedQueries.FirstOrDefault(q => q.Name.Equals(CurrentQueryName, StringComparison.OrdinalIgnoreCase));
+
+        if (currentQuery != null)
+        {
+            QueryToDelete = currentQuery;
+            IsDeleteConfirmationVisible = true;
+        }
     }
 }
