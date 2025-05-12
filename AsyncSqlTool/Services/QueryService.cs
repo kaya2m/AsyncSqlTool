@@ -398,7 +398,9 @@ namespace AsyncSqlTool.Services
             string targetTableName,
             string keyColumn = null,
             int? savedQueryId = null,
-            List<QueryColumnMapping> columnMappings = null)
+            List<QueryColumnMapping> columnMappings = null,
+            string preQuery = null,
+            string postQuery = null)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -435,7 +437,7 @@ namespace AsyncSqlTool.Services
                     return (true, log.Message, 0);
                 }
 
-                // Parametre olarak gelen kolon eşleştirmelerini kullan
+                
                 List<QueryColumnMapping> mappingsToUse = columnMappings ?? new List<QueryColumnMapping>();
 
                 if (mappingsToUse.Count == 0 && savedQueryId.HasValue)
@@ -461,9 +463,59 @@ namespace AsyncSqlTool.Services
                             .ToListAsync();
                     }
                 }
+                // Pre-Query çalıştır
+                if (!string.IsNullOrWhiteSpace(preQuery))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Zamanlanmış görev pre-sorgusu çalıştırılıyor: {preQuery}");
 
+                        using (var connection = new SqlConnection(_targetConnectionString))
+                        {
+                            await connection.OpenAsync();
+                            using (var command = new SqlCommand(preQuery, connection))
+                            {
+                                command.CommandTimeout = 9600;
+                                await command.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Message = $"Pre-sorgu hatası: {ex.Message}";
+                        log.ErrorDetails = ex.ToString();
+                        await SaveExecutionLogAsync(log);
+                        return (false, log.Message,0);
+                    }
+                }
                 await SaveToSqlServerAsync(sourceData, targetTableName, keyColumn, savedQueryId, mappingsToUse);
+                // Post-Query çalıştır
+                if (!string.IsNullOrWhiteSpace(postQuery))
+                {
+                    try
+                    {
+                        _logger.LogInformation($"Zamanlanmış görev pre-sorgusu çalıştırılıyor: {postQuery}");
 
+                        using (var connection = new SqlConnection(_targetConnectionString))
+                        {
+                            await connection.OpenAsync();
+                            using (var command = new SqlCommand(postQuery, connection))
+                            {
+                                command.CommandTimeout = 9600;
+                                await command.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Message = $"Post-sorgu hatası: {ex.Message}";
+                        log.ErrorDetails = ex.ToString();
+                        await SaveExecutionLogAsync(log);
+                        return (false, log.Message, 0);
+                    }
+                }
                 log.Message = $"{sourceData.Count} kayıt başarıyla SQL Server'a aktarıldı.";
                 log.IsSuccess = true;
 
@@ -610,14 +662,14 @@ namespace AsyncSqlTool.Services
                                 }
 
                                 var mergeSql = $@"
-                    MERGE INTO [{tableName}] AS target
-                    USING (SELECT @{keyColumn} AS [{keyColumn}]) AS source
-                    ON target.[{keyColumn}] = source.[{keyColumn}]
-                    WHEN MATCHED THEN
-                        UPDATE SET {updateSet}
-                    WHEN NOT MATCHED THEN
-                        INSERT ({columns})
-                        VALUES ({parameters});";
+                                                    MERGE INTO [{tableName}] AS target
+                                                    USING (SELECT @{keyColumn} AS [{keyColumn}]) AS source
+                                                    ON target.[{keyColumn}] = source.[{keyColumn}]
+                                                    WHEN MATCHED THEN
+                                                        UPDATE SET {updateSet}
+                                                    WHEN NOT MATCHED THEN
+                                                        INSERT ({columns})
+                                                        VALUES ({parameters});";
 
                                 using (var command = new SqlCommand(mergeSql, connection, transaction))
                                 {
@@ -659,12 +711,7 @@ namespace AsyncSqlTool.Services
                         }
                         else
                         {
-                            using (var command = new SqlCommand($"TRUNCATE TABLE [{tableName}]", connection, transaction))
-                            {
-                                command.CommandTimeout = 0;
-                                await command.ExecuteNonQueryAsync();
-                            }
-
+                            // Truncate yerine, sadece INSERT yapacağız
                             var dataTable = new DataTable();
                             foreach (var column in columnDefinitions)
                             {
@@ -715,6 +762,7 @@ namespace AsyncSqlTool.Services
                             using (var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction))
                             {
                                 bulkCopy.DestinationTableName = tableName;
+                                // TabletMapping ayarları eklenebilir
                                 await bulkCopy.WriteToServerAsync(dataTable);
                             }
                         }

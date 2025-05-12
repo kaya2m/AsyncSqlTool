@@ -333,7 +333,7 @@
                                 CssClass="w-100"
                                 Rows="3"
                                 NullText="SQL Server'da ana sorgudan önce çalıştırılacak sorgu (opsiyonel)..."
-                                LabelPosition="LabelPosition.Top" />
+                                 />
                     </div>
 
                     <DxMemo @bind-Text="@QueryText"
@@ -350,7 +350,7 @@
                                 CssClass="w-100"
                                 Rows="3"
                                 NullText="SQL Server'da ana sorgudan sonra çalıştırılacak sorgu (opsiyonel)..."
-                                LabelPosition="LabelPosition.Top" />
+                                 />
                     </div>
                 </div>
 
@@ -562,7 +562,6 @@
                             }
                         </CellDisplayTemplate>
                     </DxGridDataColumn>
-                    <DxGridDataColumn FieldName="QueryText" Caption="SQL Sorgusu" />
                 </Columns>
             </DxGrid>
         </div>
@@ -628,7 +627,7 @@
                            Label="Sorgu Adı"
                            CssClass="w-100"
                            NullText="Sorgu adı girin..."
-                           LabelPosition="LabelPosition.Top" />
+                            />
             </div>
 
             <div class="mb-3">
@@ -636,15 +635,15 @@
                            Label="Hedef Tablo Adı"
                            CssClass="w-100"
                            NullText="SQL Server tablo adı..."
-                           LabelPosition="LabelPosition.Top" />
+                            />
             </div>
 
             <div class="mb-3">
                 <DxTextBox @bind-Text="@SaveKeyColumn"
-                           Label="Anahtar Kolon (Opsiyonel)"
+                          
                            CssClass="w-100"
                            NullText="Örn: CardCode, ItemCode..."
-                           LabelPosition="LabelPosition.Top" />
+                            />
             </div>
 
             <div class="mb-3">
@@ -653,7 +652,7 @@
                         CssClass="w-100"
                         Rows="2"
                         NullText="Açıklama girin (opsiyonel)..."
-                        LabelPosition="LabelPosition.Top" />
+                         />
             </div>
 
             <div class="mb-3 form-check">
@@ -977,7 +976,7 @@
         SavedQueries = await QueryService.GetSavedQueriesByDatabaseConnectionIdAsync(SelectedDatabaseId);
         StateHasChanged();
     }
-   
+
     private async Task LoadSavedQueries()
     {
         try
@@ -1524,7 +1523,9 @@
                 TargetTableName,
                 KeyColumn,
                 null,
-                columnMappingsToSend);
+                columnMappingsToSend,
+            PreQuery,
+            PostQuery);
 
             ResultMessage = result.message;
             IsSuccess = result.success;
@@ -1801,7 +1802,7 @@
             }
 
             await LoadSavedQueries();
-            IsDeleteConfirmationVisible = false;
+            IsDeleteConfirmationVisible = false;    
             QueryToDelete = null;
             SelectedSavedQueryObj = null;
             IsSavedQueriesPopupVisible = false;
