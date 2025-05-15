@@ -386,18 +386,18 @@
                                 <div class="d-flex align-items-center justify-content-between">
 
 
-                                        <span class="status-badge info">
+                                    <span class="status-badge info">
 
-                                            <h5 class="mb-0">Seçili Sorgu: <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
+                                        <h5 class="mb-0">Seçili Sorgu: <i class="fa fa-file-code-o me-2"></i> @CurrentQueryName</h5>
 
-                                        </span>
-                                    
+                                    </span>
+
                                 </div>
                             }
                         </div>
 
                     </div>
-                    
+
                     <!-- Moved action buttons here -->
                     <div class="action-buttons mt-4">
                         <DxButton Text="Sorguyu Önizle"
@@ -422,14 +422,6 @@
             </div>
         </div>
     </div>
-
-    @if (IsProcessing)
-    {
-        <DxLoadPanel Visible="true"
-                     ShowIndicator="true"
-                     IndicatorText="İşlem devam ediyor..."
-                     ShowContent="false" />
-    }
 
     @if (!string.IsNullOrEmpty(ResultMessage))
     {
@@ -898,13 +890,19 @@
     private bool IsColumnMappingPopupVisible { get; set; } = false;
     private List<QueryColumnMapping> ColumnMappings { get; set; } = new List<QueryColumnMapping>();
     private List<string> SqlDataTypes { get; set; } = new List<string> {
-        "INT", "BIGINT", "SMALLINT", "TINYINT", "BIT",
-        "DECIMAL", "NUMERIC", "FLOAT", "REAL", "MONEY",
-        "NVARCHAR", "VARCHAR", "CHAR", "NCHAR", "TEXT", "NTEXT",
-        "DATETIME", "DATE", "TIME", "DATETIME2", "DATETIMEOFFSET",
-        "SMALLDATETIME",
-        "UNIQUEIDENTIFIER", "VARBINARY", "IMAGE", "XML"
-    };
+    "bit",
+    "date",
+    "datetime",
+    "decimal",
+    "float",
+    "int",
+    "numeric",
+    "nvarchar",
+    "smalldatetime",
+    "time",
+    "uniqueidentifier",
+    "varchar"
+};
 
     // Kayıtlı sorgular popup
     private bool IsSavedQueriesPopupVisible { get; set; } = false;
@@ -1010,18 +1008,18 @@
                 foreach (var mapping in mappings)
                 {
                     ColumnMappings.Add(new QueryColumnMapping
-                        {
-                            SavedQueryId = mapping.SavedQueryId,
-                            SourceColumnName = mapping.SourceColumnName,
-                            TargetColumnName = mapping.TargetColumnName,
-                            DataType = mapping.DataType,
-                            Length = mapping.Length,
-                            Precision = mapping.Precision,
-                            Scale = mapping.Scale,
-                            IsPrimaryKey = mapping.IsPrimaryKey,
-                            AllowNull = mapping.AllowNull,
-                            SortOrder = mapping.SortOrder
-                        });
+                    {
+                        SavedQueryId = mapping.SavedQueryId,
+                        SourceColumnName = mapping.SourceColumnName,
+                        TargetColumnName = mapping.TargetColumnName,
+                        DataType = mapping.DataType,
+                        Length = mapping.Length,
+                        Precision = mapping.Precision,
+                        Scale = mapping.Scale,
+                        IsPrimaryKey = mapping.IsPrimaryKey,
+                        AllowNull = mapping.AllowNull,
+                        SortOrder = mapping.SortOrder
+                    });
                 }
             }
         }
@@ -1076,17 +1074,14 @@
 
         try
         {
-            // Aynı isimde sorgu var mı kontrol et
             var existingQuery = SavedQueries.FirstOrDefault(q => q.Name.Equals(SaveQueryName, StringComparison.OrdinalIgnoreCase));
             if (existingQuery != null)
             {
-                // Mevcut sorguyu kaydet ve güncelleme onay dialogunu göster
                 QueryToUpdate = existingQuery;
                 IsUpdateConfirmVisible = true;
                 return;
             }
 
-            // Yeni sorgu oluştur ve kaydet
             await CreateNewQuery();
         }
         catch (Exception ex)
@@ -1113,17 +1108,17 @@
     private void AddNewColumnMapping()
     {
         ColumnMappings.Add(new QueryColumnMapping
-            {
-                SourceColumnName = "",
-                TargetColumnName = "",
-                DataType = "NVARCHAR",
-                Length = 100,
-                Precision = 0,
-                Scale = 0,
-                IsPrimaryKey = false,
-                AllowNull = true,
-                SortOrder = ColumnMappings.Count + 1
-            });
+        {
+            SourceColumnName = "",
+            TargetColumnName = "",
+            DataType = "NVARCHAR",
+            Length = 100,
+            Precision = 0,
+            Scale = 0,
+            IsPrimaryKey = false,
+            AllowNull = true,
+            SortOrder = ColumnMappings.Count + 1
+        });
     }
 
     private void RemoveColumnMapping(int index)
@@ -1172,17 +1167,17 @@
                     var dataType = DetermineDataType(value);
 
                     ColumnMappings.Add(new QueryColumnMapping
-                        {
-                            SourceColumnName = key,
-                            TargetColumnName = key,
-                            DataType = dataType,
-                            Length = dataType.Contains("VARCHAR") ? 255 : 0,
-                            Precision = dataType == "DECIMAL" ? 18 : 0,
-                            Scale = dataType == "DECIMAL" ? 2 : 0,
-                            IsPrimaryKey = KeyColumn == key,
-                            AllowNull = true,
-                            SortOrder = sortOrder++
-                        });
+                    {
+                        SourceColumnName = key,
+                        TargetColumnName = key,
+                        DataType = dataType,
+                        Length = dataType.Contains("varchar") ? 255 : 0,
+                        Precision = dataType == "decimal" ? 18 : 0,
+                        Scale = dataType == "decimal" ? 2 : 0,
+                        IsPrimaryKey = KeyColumn == key,
+                        AllowNull = true,
+                        SortOrder = sortOrder++
+                    });
                 }
 
                 ResultMessage = $"{ColumnMappings.Count} kolon başarıyla alındı.";
@@ -1210,36 +1205,45 @@
     private string DetermineDataType(object value)
     {
         if (value == null)
-            return "NVARCHAR";
+            return "nvarchar";
 
-        if (value is int || value is Int32 || value is Int16 || value is byte)
-            return "INT";
-        else if (value is long || value is Int64)
-            return "BIGINT";
-        else if (value is decimal || value is double || value is float)
-            return "DECIMAL";
-        else if (value is bool)
-            return "BIT";
-        else if (value is DateTime)
-            return "DATETIME";
-        else if (value is Guid)
-            return "UNIQUEIDENTIFIER";
-        else if (value is byte[])
-            return "VARBINARY";
+        Type type = value.GetType();
+
+        if (type == typeof(int) || type == typeof(Int32) ||
+            type == typeof(Int16) || type == typeof(byte))
+            return "int";
+
+        else if (type == typeof(long) || type == typeof(Int64))
+            return "bigint";
+
+        else if (type == typeof(decimal) || type == typeof(double) ||
+                 type == typeof(float))
+            return "decimal";
+
+        else if (type == typeof(bool))
+            return "bit";
+
+        else if (type == typeof(DateTime))
+            return "datetime";
+
+        else if (type == typeof(Guid))
+            return "uniqueidentifier";
+
+        else if (type == typeof(byte[]))
+            return "varbinary";
+
         else
-            return "NVARCHAR";
+            return "nvarchar";
     }
 
     private void SaveColumnMappings()
     {
-        // Anahtar kolonu güncelle (varsa)
         var primaryKeyMapping = ColumnMappings.FirstOrDefault(m => m.IsPrimaryKey);
         if (primaryKeyMapping != null)
         {
             KeyColumn = primaryKeyMapping.SourceColumnName;
         }
 
-        // Popup'ı kapat
         IsColumnMappingPopupVisible = false;
 
         ResultMessage = "Kolon eşleştirmeleri başarıyla kaydedildi.";
@@ -1317,7 +1321,7 @@
                 TargetTableName,
                 RowLimit,
                 columnsToSelect,
-                null); 
+                null);
 
             if (data.Count > 0)
             {
@@ -1401,17 +1405,17 @@
                         int.TryParse(column["Scale"].ToString(), out scale);
                     }
                     ColumnMappings.Add(new QueryColumnMapping
-                        {
-                            SourceColumnName = columnName,
-                            TargetColumnName = columnName,
-                            DataType = dataType.ToUpper(),
-                            Length = length,
-                            Precision = precision,
-                            Scale = scale,
-                            IsPrimaryKey = isPrimaryKey,
-                            AllowNull = isNullable,
-                            SortOrder = sortOrder++
-                        });
+                    {
+                        SourceColumnName = columnName,
+                        TargetColumnName = columnName,
+                        DataType = dataType.ToUpper(),
+                        Length = length,
+                        Precision = precision,
+                        Scale = scale,
+                        IsPrimaryKey = isPrimaryKey,
+                        AllowNull = isNullable,
+                        SortOrder = sortOrder++
+                    });
                 }
 
                 // Anahtar kolonu güncelle
@@ -1460,26 +1464,24 @@
         {
             Logger.LogInformation("Sorgu çalıştırılıyor...");
 
-            // Sorguyu çalıştırmadan önce mevcut ColumnMappings listesini kopyalayalım
             var columnMappingsToSend = new List<QueryColumnMapping>();
 
             if (ColumnMappings.Count > 0)
             {
-                // Kolon eşleştirmelerini kopyalayarak yeni bir liste oluştur
                 foreach (var mapping in ColumnMappings)
                 {
                     columnMappingsToSend.Add(new QueryColumnMapping
-                        {
-                            SourceColumnName = mapping.SourceColumnName,
-                            TargetColumnName = mapping.TargetColumnName,
-                            DataType = mapping.DataType,
-                            Length = mapping.Length,
-                            Precision = mapping.Precision,
-                            Scale = mapping.Scale,
-                            IsPrimaryKey = mapping.IsPrimaryKey,
-                            AllowNull = mapping.AllowNull,
-                            SortOrder = mapping.SortOrder
-                        });
+                    {
+                        SourceColumnName = mapping.SourceColumnName,
+                        TargetColumnName = mapping.TargetColumnName,
+                        DataType = mapping.DataType,
+                        Length = mapping.Length,
+                        Precision = mapping.Precision,
+                        Scale = mapping.Scale,
+                        IsPrimaryKey = mapping.IsPrimaryKey,
+                        AllowNull = mapping.AllowNull,
+                        SortOrder = mapping.SortOrder
+                    });
                 }
             }
 
@@ -1577,16 +1579,16 @@
                         var dataType = DetermineDataType(value);
 
                         ColumnMappings.Add(new QueryColumnMapping
-                            {
-                                SourceColumnName = key,
-                                TargetColumnName = key,
-                                DataType = dataType,
-                                Length = dataType.Contains("VARCHAR") ? 255 : 0,
-                                Precision = dataType == "DECIMAL" ? 2 : 0,
-                                IsPrimaryKey = KeyColumn == key,
-                                AllowNull = true,
-                                SortOrder = sortOrder++
-                            });
+                        {
+                            SourceColumnName = key,
+                            TargetColumnName = key,
+                            DataType = dataType,
+                            Length = dataType.Contains("VARCHAR") ? 255 : 0,
+                            Precision = dataType == "DECIMAL" ? 2 : 0,
+                            IsPrimaryKey = KeyColumn == key,
+                            AllowNull = true,
+                            SortOrder = sortOrder++
+                        });
                     }
                 }
             }
@@ -1634,17 +1636,17 @@
     private async Task CreateNewQuery()
     {
         var query = new SavedQuery
-            {
-                Name = SaveQueryName,
-                QueryText = QueryText,
-                TargetTableName = SaveTableName,
-                KeyColumn = SaveKeyColumn,
-                Description = SaveQueryDescription,
-                DatabaseConnectionId = SelectedDatabaseId,
-                CreatedAt = DateTime.Now,
-                PreQuery = SavePreQuery,
-                PostQuery = SavePostQuery
-            };
+        {
+            Name = SaveQueryName,
+            QueryText = QueryText,
+            TargetTableName = SaveTableName,
+            KeyColumn = SaveKeyColumn,
+            Description = SaveQueryDescription,
+            DatabaseConnectionId = SelectedDatabaseId,
+            CreatedAt = DateTime.Now,
+            PreQuery = SavePreQuery,
+            PostQuery = SavePostQuery
+        };
 
         if (IncludeColumnMappings && ColumnMappings.Count > 0)
         {
@@ -1653,17 +1655,17 @@
             foreach (var mapping in ColumnMappings)
             {
                 query.ColumnMappings.Add(new QueryColumnMapping
-                    {
-                        SourceColumnName = mapping.SourceColumnName,
-                        TargetColumnName = mapping.TargetColumnName,
-                        DataType = mapping.DataType,
-                        Length = mapping.Length,
-                        Precision = mapping.Precision,
-                        Scale = mapping.Scale,
-                        IsPrimaryKey = mapping.IsPrimaryKey,
-                        AllowNull = mapping.AllowNull,
-                        SortOrder = mapping.SortOrder
-                    });
+                {
+                    SourceColumnName = mapping.SourceColumnName,
+                    TargetColumnName = mapping.TargetColumnName,
+                    DataType = mapping.DataType,
+                    Length = mapping.Length,
+                    Precision = mapping.Precision,
+                    Scale = mapping.Scale,
+                    IsPrimaryKey = mapping.IsPrimaryKey,
+                    AllowNull = mapping.AllowNull,
+                    SortOrder = mapping.SortOrder
+                });
             }
         }
 
@@ -1690,26 +1692,24 @@
         QueryToUpdate.DatabaseConnectionId = SelectedDatabaseId;
         QueryToUpdate.PreQuery = SavePreQuery;
         QueryToUpdate.PostQuery = SavePostQuery;
-        // Kolon eşleştirmelerini güncelle
         if (IncludeColumnMappings && ColumnMappings.Count > 0)
         {
-            // Mevcut eşleştirmeleri temizleme işlemi server tarafında yapılacak
             QueryToUpdate.ColumnMappings = new List<QueryColumnMapping>();
 
             foreach (var mapping in ColumnMappings)
             {
                 QueryToUpdate.ColumnMappings.Add(new QueryColumnMapping
-                    {
-                        SourceColumnName = mapping.SourceColumnName,
-                        TargetColumnName = mapping.TargetColumnName,
-                        DataType = mapping.DataType,
-                        Length = mapping.Length,
-                        Precision = mapping.Precision,
-                        Scale = mapping.Scale,
-                        IsPrimaryKey = mapping.IsPrimaryKey,
-                        AllowNull = mapping.AllowNull,
-                        SortOrder = mapping.SortOrder
-                    });
+                {
+                    SourceColumnName = mapping.SourceColumnName,
+                    TargetColumnName = mapping.TargetColumnName,
+                    DataType = mapping.DataType,
+                    Length = mapping.Length,
+                    Precision = mapping.Precision,
+                    Scale = mapping.Scale,
+                    IsPrimaryKey = mapping.IsPrimaryKey,
+                    AllowNull = mapping.AllowNull,
+                    SortOrder = mapping.SortOrder
+                });
             }
         }
 

@@ -186,61 +186,85 @@ namespace AsyncSqlTool.Services
         }
 
         /// <summary>
-        /// Kaydedilmiş sorguyu günceller
+        /// Kaydedilmiş sorguyu günceller (eskisini silip yenisini ekler)
         /// </summary>
         public async Task<bool> UpdateSavedQueryAsync(SavedQuery query)
         {
-            var existingQuery = await _dbContext.SavedQueries
-                .Include(q => q.ColumnMappings)
-                .FirstOrDefaultAsync(q => q.Id == query.Id);
-
-            if (existingQuery == null)
-                return false;
-
-            existingQuery.Name = query.Name;
-            existingQuery.QueryText = query.QueryText;
-            existingQuery.TargetTableName = query.TargetTableName;
-            existingQuery.KeyColumn = query.KeyColumn;
-            existingQuery.Description = query.Description;
-            existingQuery.IsScheduled = query.IsScheduled;
-            existingQuery.ScheduleExpression = query.ScheduleExpression;
-            existingQuery.DatabaseConnectionId = query.DatabaseConnectionId;
-            existingQuery.PreQuery = query.PreQuery;
-            existingQuery.PostQuery = query.PostQuery;
-
-            if (existingQuery.ColumnMappings != null && existingQuery.ColumnMappings.Any())
+            using (var transaction = await _dbContext.Database.BeginTransactionAsync())
             {
-                var allColumns = _dbContext.QueryColumnMappings
-                     .Where(m => m.SavedQueryId == existingQuery.Id)
-                     .ToList();
-                _dbContext.RemoveRange(allColumns);
-            }
-
-            if (query.ColumnMappings != null && query.ColumnMappings.Any())
-            {
-                existingQuery.ColumnMappings = query.ColumnMappings.Select(cm => new QueryColumnMapping
+                try
                 {
-                    SavedQueryId = existingQuery.Id,
-                    SourceColumnName = cm.SourceColumnName,
-                    TargetColumnName = cm.TargetColumnName,
-                    DataType = cm.DataType,
-                    Length = cm.Length,
-                    Precision = cm.Precision,
-                    Scale = cm.Scale,
-                    IsPrimaryKey = cm.IsPrimaryKey,
-                    AllowNull = cm.AllowNull,
-                    SortOrder = cm.SortOrder
-                }).ToList();
-            }
-            else
-            {
-                existingQuery.ColumnMappings = new List<QueryColumnMapping>();
-            }
+                    var existingQuery = await _dbContext.SavedQueries
+                        .Include(q => q.ColumnMappings)
+                        .FirstOrDefaultAsync(q => q.Id == query.Id);
 
-            await _dbContext.SaveChangesAsync();
-            return true;
+                    if (existingQuery == null)
+                        return false;
+
+                    var existingMappings = await _dbContext.QueryColumnMappings
+                        .Where(m => m.SavedQueryId == existingQuery.Id)
+                        .ToListAsync();
+
+                    if (existingMappings.Any())
+                    {
+                        _dbContext.QueryColumnMappings.RemoveRange(existingMappings);
+                        await _dbContext.SaveChangesAsync();
+                    }
+
+                    _dbContext.SavedQueries.Remove(existingQuery);
+                    await _dbContext.SaveChangesAsync();
+
+                    var newQuery = new SavedQuery
+                    {
+                        Name = query.Name,
+                        QueryText = query.QueryText,
+                        TargetTableName = query.TargetTableName,
+                        KeyColumn = query.KeyColumn,
+                        Description = query.Description,
+                        IsScheduled = query.IsScheduled,
+                        ScheduleExpression = query.ScheduleExpression,
+                        DatabaseConnectionId = query.DatabaseConnectionId,
+                        PreQuery = query.PreQuery,
+                        PostQuery = query.PostQuery,
+                        CreatedAt = existingQuery.CreatedAt, 
+                        LastExecuted = existingQuery.LastExecuted 
+                    };
+
+                    _dbContext.SavedQueries.Add(newQuery);
+                    await _dbContext.SaveChangesAsync();
+
+                    if (query.ColumnMappings != null && query.ColumnMappings.Any())
+                    {
+                        foreach (var cm in query.ColumnMappings)
+                        {
+                            _dbContext.QueryColumnMappings.Add(new QueryColumnMapping
+                            {
+                                SavedQueryId = newQuery.Id, 
+                                SourceColumnName = cm.SourceColumnName,
+                                TargetColumnName = cm.TargetColumnName,
+                                DataType = cm.DataType,
+                                Length = cm.Length,
+                                Precision = cm.Precision,
+                                Scale = cm.Scale,
+                                IsPrimaryKey = cm.IsPrimaryKey,
+                                AllowNull = cm.AllowNull,
+                                SortOrder = cm.SortOrder
+                            });
+                        }
+
+                        await _dbContext.SaveChangesAsync();
+                    }
+
+                    await transaction.CommitAsync();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    throw; 
+                }
+            }
         }
-
         /// <summary>
         /// Kaydedilmiş sorguyu siler
         /// </summary>
@@ -587,22 +611,33 @@ namespace AsyncSqlTool.Services
 
                 var firstRecord = data[0];
 
-                // Bu yeni yapı SQL tipini de saklayacak
-                var columnDefinitions = new List<(string Name, Type Type, bool IsKey, string SqlType)>();
+                var columnMappingDict = new Dictionary<string, QueryColumnMapping>(StringComparer.OrdinalIgnoreCase);
+                if (columnMappings != null)
+                {
+                    foreach (var mapping in columnMappings)
+                    {
+                        if (!string.IsNullOrEmpty(mapping.SourceColumnName))
+                        {
+                            columnMappingDict[mapping.SourceColumnName] = mapping;
+                        }
+                    }
+                }
+
+                var columnDefinitions = new List<(string SourceName, string TargetName, Type Type, bool IsKey, string SqlType)>();
 
                 foreach (var key in firstRecord.Keys)
                 {
                     var value = firstRecord[key];
                     var isKey = !string.IsNullOrEmpty(keyColumn) && key.Equals(keyColumn, StringComparison.OrdinalIgnoreCase);
 
-                    var columnMapping = columnMappings?.FirstOrDefault(m => m.SourceColumnName.Equals(key, StringComparison.OrdinalIgnoreCase));
+                    var columnMapping = columnMappingDict.ContainsKey(key) ? columnMappingDict[key] : null;
 
                     if (columnMapping != null)
                     {
                         string sqlType = GetSqlTypeFromMapping(columnMapping);
                         Type clrType = GetClrTypeFromSqlType(columnMapping.DataType, columnMapping.Length, columnMapping.Precision);
 
-                        columnDefinitions.Add((key, clrType, columnMapping.IsPrimaryKey, sqlType));
+                        columnDefinitions.Add((key, columnMapping.TargetColumnName ?? key, clrType, columnMapping.IsPrimaryKey, sqlType));
                     }
                     else
                     {
@@ -626,13 +661,13 @@ namespace AsyncSqlTool.Services
                         }
 
                         string sqlType = GetSqlTypeFromClrType(clrType);
-
-                        columnDefinitions.Add((key, clrType, isKey, sqlType));
+                        columnDefinitions.Add((key, key, clrType, isKey, sqlType));
                     }
                 }
 
                 if (!await TableExistsAsync(connection, tableName))
                 {
+                    // Tablo oluştururken hedef kolon adlarını kullan
                     await CreateTableAsync(connection, tableName, columnDefinitions, savedQueryId);
                     _logger.LogInformation($"Tablo oluşturuldu: {tableName}");
                 }
@@ -649,12 +684,21 @@ namespace AsyncSqlTool.Services
                         {
                             foreach (var record in data)
                             {
-                                var validColumns = record.Keys.Where(k => IsValidSqlIdentifier(k)).ToList();
-                                var columns = string.Join(", ", validColumns.Select(k => $"[{k}]"));
-                                var parameters = string.Join(", ", validColumns.Select(k => $"@{k}"));
-                                var updateSet = string.Join(", ", validColumns
-                                    .Where(k => !k.Equals(keyColumn, StringComparison.OrdinalIgnoreCase))
-                                    .Select(k => $"[{k}] = @{k}"));
+                                var validSourceColumns = record.Keys.Where(k => IsValidSqlIdentifier(k)).ToList();
+
+                                var columnsMap = validSourceColumns.Select(sourceCol => {
+                                    var colDef = columnDefinitions.FirstOrDefault(c => c.SourceName.Equals(sourceCol, StringComparison.OrdinalIgnoreCase));
+                                    return (SourceCol: sourceCol, TargetCol: colDef.TargetName ?? sourceCol);
+                                }).ToList();
+
+                                var columns = string.Join(", ", columnsMap.Select(c => $"[{c.TargetCol}]"));
+
+                                var parameters = string.Join(", ", columnsMap.Select(c => $"@{c.SourceCol}"));
+
+                                var keyTargetCol = columnDefinitions.FirstOrDefault(c => c.SourceName.Equals(keyColumn, StringComparison.OrdinalIgnoreCase)).TargetName ?? keyColumn;
+                                var updateSet = string.Join(", ", columnsMap
+                                    .Where(c => !c.SourceCol.Equals(keyColumn, StringComparison.OrdinalIgnoreCase))
+                                    .Select(c => $"[{c.TargetCol}] = @{c.SourceCol}"));
 
                                 if (string.IsNullOrEmpty(updateSet))
                                 {
@@ -662,18 +706,18 @@ namespace AsyncSqlTool.Services
                                 }
 
                                 var mergeSql = $@"
-                                                    MERGE INTO [{tableName}] AS target
-                                                    USING (SELECT @{keyColumn} AS [{keyColumn}]) AS source
-                                                    ON target.[{keyColumn}] = source.[{keyColumn}]
-                                                    WHEN MATCHED THEN
-                                                        UPDATE SET {updateSet}
-                                                    WHEN NOT MATCHED THEN
-                                                        INSERT ({columns})
-                                                        VALUES ({parameters});";
+                                          MERGE INTO [{tableName}] AS target
+                                          USING (SELECT @{keyColumn} AS [{keyTargetCol}]) AS source
+                                          ON target.[{keyTargetCol}] = source.[{keyTargetCol}]
+                                          WHEN MATCHED THEN
+                                              UPDATE SET {updateSet}
+                                          WHEN NOT MATCHED THEN
+                                              INSERT ({columns})
+                                              VALUES ({parameters});";
 
                                 using (var command = new SqlCommand(mergeSql, connection, transaction))
                                 {
-                                    foreach (var key in validColumns)
+                                    foreach (var key in validSourceColumns)
                                     {
                                         var paramValue = record[key];
 
@@ -690,7 +734,6 @@ namespace AsyncSqlTool.Services
                                                 }
                                                 catch
                                                 {
-                                                    // Dönüştürme başarısız olursa null kullan
                                                     command.Parameters.AddWithValue($"@{key}", DBNull.Value);
                                                 }
                                             }
@@ -711,24 +754,28 @@ namespace AsyncSqlTool.Services
                         }
                         else
                         {
-                            // Truncate yerine, sadece INSERT yapacağız
                             var dataTable = new DataTable();
+
                             foreach (var column in columnDefinitions)
                             {
-                                dataTable.Columns.Add(column.Name, column.Type);
+                                dataTable.Columns.Add(column.TargetName, column.Type);
                             }
+
+                            var sourceToTargetMap = columnDefinitions.ToDictionary(
+                                col => col.SourceName,
+                                col => col.TargetName,
+                                StringComparer.OrdinalIgnoreCase);
 
                             foreach (var record in data)
                             {
                                 var row = dataTable.NewRow();
 
-                                foreach (var column in columnDefinitions)
+                                foreach (var sourceCol in record.Keys)
                                 {
-                                    if (record.ContainsKey(column.Name))
+                                    if (sourceToTargetMap.TryGetValue(sourceCol, out string targetCol))
                                     {
-                                        var cellValue = record[column.Name];
+                                        var cellValue = record[sourceCol];
 
-                                        // HanaDecimal ve diğer özel veri tipleri için dönüşüm yap
                                         if (cellValue != null)
                                         {
                                             var valueTypeName = cellValue.GetType().FullName;
@@ -737,21 +784,21 @@ namespace AsyncSqlTool.Services
                                             {
                                                 try
                                                 {
-                                                    row[column.Name] = Convert.ToDecimal(cellValue.ToString());
+                                                    row[targetCol] = Convert.ToDecimal(cellValue.ToString());
                                                 }
                                                 catch
                                                 {
-                                                    row[column.Name] = DBNull.Value;
+                                                    row[targetCol] = DBNull.Value;
                                                 }
                                             }
                                             else
                                             {
-                                                row[column.Name] = cellValue ?? DBNull.Value;
+                                                row[targetCol] = cellValue ?? DBNull.Value;
                                             }
                                         }
                                         else
                                         {
-                                            row[column.Name] = DBNull.Value;
+                                            row[targetCol] = DBNull.Value;
                                         }
                                     }
                                 }
@@ -762,7 +809,12 @@ namespace AsyncSqlTool.Services
                             using (var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction))
                             {
                                 bulkCopy.DestinationTableName = tableName;
-                                // TabletMapping ayarları eklenebilir
+
+                                foreach (var columnMapping in sourceToTargetMap)
+                                {
+                                    bulkCopy.ColumnMappings.Add(columnMapping.Value, columnMapping.Value);
+                                }
+
                                 await bulkCopy.WriteToServerAsync(dataTable);
                             }
                         }
@@ -814,46 +866,18 @@ namespace AsyncSqlTool.Services
         /// <summary>
         /// SQL Server'da tablo oluşturur
         /// </summary>
-        private async Task CreateTableAsync(SqlConnection connection, string tableName,
-     List<(string Name, Type Type, bool IsKey, string SqlType)> columnDefinitions, int? savedQueryId = null)
+        private async Task CreateTableAsync(SqlConnection connection, string tableName, List<(string SourceName, string TargetName, Type Type, bool IsKey, string SqlType)> columnDefinitions, int? savedQueryId)
         {
-            var createTableSql = new StringBuilder();
-            createTableSql.AppendLine($"CREATE TABLE [{tableName}] (");
+            var columnsDefinitionSql = string.Join(", ", columnDefinitions.Select(c =>
+                $"[{c.TargetName}] {c.SqlType}{(c.IsKey ? " PRIMARY KEY" : "")}"));
 
-            var columnDefinitionStrings = new List<string>();
-            foreach (var column in columnDefinitions)
-            {
-                // SQL tipini doğrudan kullan
-                var primaryKeyClause = column.IsKey ? "PRIMARY KEY" : "";
-                columnDefinitionStrings.Add($"[{column.Name}] {column.SqlType} {primaryKeyClause}");
-            }
+            var createTableSql = $"CREATE TABLE [{tableName}] ({columnsDefinitionSql})";
 
-            createTableSql.AppendLine(string.Join(",\n", columnDefinitionStrings));
-            createTableSql.AppendLine(")");
-
-            using (var command = new SqlCommand(createTableSql.ToString(), connection))
+            using (var command = new SqlCommand(createTableSql, connection))
             {
                 await command.ExecuteNonQueryAsync();
             }
-
-
-            if (tableName.StartsWith("tmp_") || tableName.StartsWith("temp_") || !savedQueryId.HasValue)
-                return;
-
-
-            // Kolon eşleştirme kayıtlarını oluştur
-            var columnMappings = columnDefinitions.Select(col => new QueryColumnMapping
-            {
-                SavedQueryId = savedQueryId.Value,
-                SourceColumnName = col.Name,
-                TargetColumnName = col.Name,
-                DataType = col.Type.Name,
-            }).ToList();
-
-            _dbContext.QueryColumnMappings.AddRange(columnMappings);
-            await _dbContext.SaveChangesAsync();
         }
-
         /// <summary>
         /// Mevcut tablo kolonlarını kontrol eder ve gerekirse günceller
         /// </summary>
@@ -933,19 +957,16 @@ namespace AsyncSqlTool.Services
         private string GetSqlTypeFromMapping(QueryColumnMapping mapping)
         {
             if (mapping == null || string.IsNullOrEmpty(mapping.DataType))
-                return "NVARCHAR(255)"; // Varsayılan tip
+                return "NVARCHAR(255)"; 
 
             string sqlType = mapping.DataType.ToUpper();
 
-            // Tırnak içindeki parantezleri temizle (örn: "VARCHAR(100)" -> "VARCHAR")
             string baseType = sqlType;
             if (baseType.Contains("("))
                 baseType = baseType.Substring(0, baseType.IndexOf("("));
 
-            // Veri tipine göre özel işlem
             switch (baseType)
             {
-                // Uzunluk gerektiren tipler
                 case "CHAR":
                 case "NCHAR":
                 case "VARCHAR":
@@ -984,7 +1005,6 @@ namespace AsyncSqlTool.Services
                     int dtPrecision = mapping.Precision >= 0 && mapping.Precision <= 7 ? mapping.Precision : 7;
                     return $"{baseType}({dtPrecision})";
 
-                // Sabit uzunluk tipler - parametre gerektirmez
                 case "BIT":
                 case "TINYINT":
                 case "SMALLINT":
