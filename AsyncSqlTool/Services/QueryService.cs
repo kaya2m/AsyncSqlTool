@@ -179,10 +179,19 @@ namespace AsyncSqlTool.Services
         /// </summary>
         public async Task<SavedQuery> AddSavedQueryAsync(SavedQuery query)
         {
-            query.CreatedAt = DateTime.Now;
-            _dbContext.SavedQueries.Add(query);
-            await _dbContext.SaveChangesAsync();
-            return query;
+            try
+            {
+                query.CreatedAt = DateTime.Now;
+                _dbContext.SavedQueries.Add(query);
+                await _dbContext.SaveChangesAsync();
+                return query;
+            }
+            catch (Exception ex)
+            {
+
+                throw ex;
+            }
+            
         }
 
         /// <summary>

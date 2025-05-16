@@ -19,7 +19,7 @@ namespace AsyncSqlTool.Models
         [Required]
         [StringLength(50)]
         public string DataType { get; set; } // VARCHAR, INT, DECIMAL vb.
-        public int Length { get; set; } // VARCHAR(100) için 100 gibi
+        public int Length { get; set; } = 255; // VARCHAR(100) için 100 gibi
         public int Precision { get; set; } // DECIMAL(18,2) için 18 gibi
         public int Scale { get; set; } // DECIMAL(18,2) için 2 gibi
         public bool IsPrimaryKey { get; set; } = false;
